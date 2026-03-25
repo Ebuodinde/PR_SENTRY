@@ -1,0 +1,237 @@
+import json
+import os
+import urllib.error
+import urllib.request
+from typing import Dict, Any, Optional
+
+from dotenv import load_dotenv
+from slop_detector import SlopDetector
+from diff_parser import DiffParser
+
+load_dotenv()
+
+# Provider selection: production or development
+ALLOWED_PROVIDERS = {"anthropic", "development"}
+DEFAULT_ANTHROPIC_MODEL = "claude-3-5-sonnet-20241022"
+
+
+# Zero-Nitpick system prompt
+SYSTEM_PROMPT = """You are PR-Sentry, a security-focused code reviewer for open source projects.
+
+STRICT RULES:
+- NEVER comment on code style, formatting, whitespace, or variable naming
+- NEVER suggest things a linter (ESLint, Prettier, Black, Pylint) would catch
+- ONLY report issues that could cause: runtime crashes, security vulnerabilities, race conditions, or memory leaks
+- If you find no critical issues, say so clearly and briefly
+- Be direct. No long explanations. No praise. No filler.
+
+REPORT FORMAT:
+If issues found:
+🔴 CRITICAL: [issue] — [file:line if known] — [one sentence why it matters]
+
+If no critical issues:
+✅ No critical issues found. [one sentence summary of what was reviewed]
+
+Remember: A false positive that wastes a developer's time is worse than a missed minor issue."""
+
+
+def _call_development_model(prompt: str, api_key: str) -> str:
+    """Development API call for local testing."""
+    payload = json.dumps({
+        "model": "gpt-4o-mini",
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt}
+        ],
+        "max_tokens": 1000,
+        "temperature": 0.2
+    }).encode("utf-8")
+
+    request = urllib.request.Request(
+        "https://api.openai.com/v1/chat/completions",
+        data=payload,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"OpenAI API error: {e.code} — {e.reason}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"Network error calling OpenAI: {e.reason}") from e
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"Invalid JSON response from OpenAI: {e}") from e
+
+    choices = data.get("choices")
+    if not isinstance(choices, list) or len(choices) == 0:
+        raise RuntimeError(f"Unexpected OpenAI response format: {data}")
+
+    first_choice = choices[0]
+    if not isinstance(first_choice, dict):
+        raise RuntimeError(f"Unexpected OpenAI response format: {data}")
+
+    message = first_choice.get("message")
+    if not isinstance(message, dict) or "content" not in message:
+        raise RuntimeError(f"Unexpected OpenAI response format: {data}")
+
+    return message["content"]
+
+
+def _call_anthropic(prompt: str, api_key: str, model: str) -> str:
+    """Anthropic API call for production."""
+    import anthropic
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model=model,
+            max_tokens=1000,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return response.content[0].text
+    except anthropic.RateLimitError as e:
+        raise RuntimeError(f"Anthropic rate limit exceeded: {e}") from e
+    except anthropic.APIError as e:
+        raise RuntimeError(f"Anthropic API error: {e}") from e
+
+
+class Reviewer:
+    """
+    Main module that combines slop_detector, diff_parser, and the LLM API.
+    """
+
+    def __init__(
+        self,
+        provider: Optional[str] = None,
+        anthropic_api_key: Optional[str] = None,
+        dev_llm_api_key: Optional[str] = None,
+        anthropic_model: Optional[str] = None,
+    ):
+        self.slop_detector = SlopDetector()
+        self.diff_parser = DiffParser()
+        self.provider = (provider or "").strip()
+        if self.provider not in ALLOWED_PROVIDERS:
+            raise ValueError(f"Invalid REVIEWER_PROVIDER: {self.provider}. Use 'anthropic' or 'development'.")
+        self.anthropic_api_key = (anthropic_api_key or "").strip()
+        self.dev_llm_api_key = (dev_llm_api_key or "").strip()
+        self.anthropic_model = (anthropic_model or DEFAULT_ANTHROPIC_MODEL).strip() or DEFAULT_ANTHROPIC_MODEL
+
+        if self.provider == "anthropic" and not self.anthropic_api_key:
+            raise ValueError("ANTHROPIC_API_KEY is required when provider='anthropic'.")
+
+        if self.provider == "development" and not self.dev_llm_api_key:
+            raise ValueError("DEV_LLM_API_KEY is required when provider='development'.")
+
+    def review_pr(
+        self,
+        title: str,
+        body: str,
+        commit_messages: list,
+        raw_diff: str
+    ) -> Dict[str, Any]:
+        """
+        Analyze the PR.
+
+        1. Slop detection — cheap and API-free
+        2. Diff parsing + security scan
+        3. LLM review — only called if the PR is not slop
+
+        Returns:
+            {
+                "is_slop": bool,
+                "slop_score": int,
+                "security_hints": list,
+                "review": str,
+                "provider": str,
+                "skipped_llm": bool
+            }
+        """
+
+        # Step 1: Slop detection
+        slop_result = self.slop_detector.evaluate_pr(title, body, commit_messages)
+
+        if slop_result["is_slop"]:
+            return {
+                "is_slop": True,
+                "slop_score": slop_result["slop_score"],
+                "security_hints": [],
+                "review": f"⚠️ This PR appears to contain a high amount of AI-generated content (score: {slop_result['slop_score']}/100). Human review is required.",
+                "provider": self.provider,
+                "skipped_llm": True
+            }
+
+        # Step 2: Parse the diff
+        parsed_files = self.diff_parser.parse_diff(raw_diff)
+        formatted_diff = self.diff_parser.format_for_review(parsed_files)
+
+        # Collect security warnings from all files
+        all_hints = []
+        for f in parsed_files:
+            all_hints.extend(f["security_hints"])
+
+        # Step 3: LLM review
+        prompt = f"""PR Title: {title}
+
+PR Description:
+{body}
+
+Code Changes:
+{formatted_diff}"""
+
+        if self.provider == "anthropic":
+            review_text = _call_anthropic(prompt, self.anthropic_api_key, self.anthropic_model)
+        elif self.provider == "development":
+            review_text = _call_development_model(prompt, self.dev_llm_api_key)
+        else:
+            raise RuntimeError(f"Invalid reviewer provider state: {self.provider}")
+
+        return {
+            "is_slop": False,
+            "slop_score": slop_result["slop_score"],
+            "security_hints": all_hints,
+            "review": review_text,
+            "provider": self.provider,
+            "skipped_llm": False
+        }
+
+
+# --- Test Area ---
+if __name__ == "__main__":
+    reviewer = Reviewer(
+        provider=os.getenv("REVIEWER_PROVIDER", "anthropic"),
+        anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
+        dev_llm_api_key=os.getenv("DEV_LLM_API_KEY"),
+        anthropic_model=os.getenv("ANTHROPIC_MODEL", DEFAULT_ANTHROPIC_MODEL),
+    )
+
+    test_diff = """diff --git a/src/auth.py b/src/auth.py
+index 1234567..abcdefg 100644
+--- a/src/auth.py
++++ b/src/auth.py
+@@ -10,6 +10,8 @@ def login(username, password):
+     user = db.find_user(username)
+-    if user.password == password:
++    if user and user.check_password(password):
+         return generate_token(user)
++    return None
+"""
+
+    print("=== PR-Sentry Review Test ===\n")
+
+    result = reviewer.review_pr(
+        title="Fix authentication null pointer",
+        body="Fixed the crash when user is not found. Added null check before password comparison.",
+        commit_messages=["fix: add null check in login function"],
+        raw_diff=test_diff
+    )
+
+    print(f"Slop? {result['is_slop']} (score: {result['slop_score']})")
+    print(f"Security warnings: {result['security_hints'] or 'None'}")
+    print(f"Provider: {result['provider']}")
+    print(f"\nReview:\n{result['review']}")

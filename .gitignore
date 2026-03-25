@@ -1,0 +1,19 @@
+# Secrets — never commit to GitHub
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Test outputs
+*.log
