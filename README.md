@@ -121,3 +121,5 @@ CodeRabbit floods PR timelines with verbose comments on whitespace and naming. C
 ## License
 
 MIT — free for open source and commercial use.
+
+<!-- PR-Sentry workflow test branch -->
