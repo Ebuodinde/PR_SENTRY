@@ -55,7 +55,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Run PR-Sentry
-        uses: YOUR_GITHUB_USERNAME/pr-sentry@v1
+        uses: Ebuodinde/PR_SENTRY@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
