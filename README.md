@@ -28,7 +28,7 @@ PR opened
       → High slop score? Flag immediately, skip LLM.
       → Clean? Continue.
   → Diff parsed + security pattern scan
-  → Claude reviews (security issues, crashes, race conditions only)
+  → Claude 4.5 Haiku reviews (security issues, crashes, race conditions only)
   → Single comment posted to PR
 ```
 
@@ -58,6 +58,7 @@ jobs:
         uses: Ebuodinde/PR_SENTRY@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # anthropic_model: "claude-4-5-haiku-20251015" (opsiyonel)
 ```
 
 Then add your API key to **Settings → Secrets → Actions**:

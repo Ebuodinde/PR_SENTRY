@@ -12,7 +12,7 @@ load_dotenv()
 
 # Provider selection: production or development
 ALLOWED_PROVIDERS = {"anthropic", "development"}
-DEFAULT_ANTHROPIC_MODEL = "claude-3-5-sonnet-20241022"
+DEFAULT_ANTHROPIC_MODEL = "claude-4-5-haiku-20251015"
 
 
 # Zero-Nitpick system prompt
@@ -85,20 +85,31 @@ def _call_development_model(prompt: str, api_key: str) -> str:
 def _call_anthropic(prompt: str, api_key: str, model: str) -> str:
     """Anthropic API call for production."""
     import anthropic
+    import time
 
-    try:
-        client = anthropic.Anthropic(api_key=api_key)
-        response = client.messages.create(
-            model=model,
-            max_tokens=1000,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        return response.content[0].text
-    except anthropic.RateLimitError as e:
-        raise RuntimeError(f"Anthropic rate limit exceeded: {e}") from e
-    except anthropic.APIError as e:
-        raise RuntimeError(f"Anthropic API error: {e}") from e
+    max_retries = 3
+    retry_delay = 2
+
+    for attempt in range(max_retries):
+        try:
+            client = anthropic.Anthropic(api_key=api_key)
+            response = client.messages.create(
+                model=model,
+                max_tokens=1000,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return response.content[0].text
+        except anthropic.RateLimitError as e:
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay * (attempt + 1))
+                continue
+            raise RuntimeError(f"Anthropic rate limit exceeded after {max_retries} attempts: {e}") from e
+        except anthropic.APIError as e:
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+                continue
+            raise RuntimeError(f"Anthropic API error: {e}") from e
 
 
 class Reviewer:

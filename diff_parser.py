@@ -14,6 +14,12 @@ class DiffParser:
         (r'(?i)(api_key|apikey|api_secret)\s*=\s*["\']?.+["\']?', "Hardcoded API key"),
         (r'(?i)(secret|token)\s*=\s*["\']?[a-zA-Z0-9_\-]{8,}["\']?', "Hardcoded secret/token"),
         (r'(?i)-----BEGIN (RSA |EC )?PRIVATE KEY-----', "Private key"),
+        # Cloud Cloud credentials
+        (r'(?i)AKIA[0-9A-Z]{16}', "AWS Access Key ID"),
+        (r'(?i)["\'][a-zA-Z0-9/+=]{40}["\']', "AWS Secret Access Key (Potential)"),
+        (r'(?i)AIza[0-9A-Za-z\\-_]{35}', "Google API Key"),
+        (r'(?i)sqp_[a-z0-9]{40}', "SonarQube Token"),
+        (r'(?i)xox[baprs]-[0-9a-zA-Z]{10,48}', "Slack Token"),
     ]
 
     def parse_diff(self, raw_diff: str) -> List[Dict[str, Any]]:

@@ -96,7 +96,7 @@ def main():
     provider = os.getenv("REVIEWER_PROVIDER", "anthropic").strip()
     anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
     dev_llm_api_key = os.getenv("DEV_LLM_API_KEY")
-    anthropic_model = os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+    anthropic_model = os.getenv("ANTHROPIC_MODEL", "claude-4-5-haiku-20251015")
 
     try:
         reviewer = Reviewer(
