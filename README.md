@@ -86,7 +86,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Run PR-Sentry
-        uses: Ebuodinde/PR_SENTRY@v2
+        uses: Ebuodinde/PR_SENTRY@v3
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
@@ -95,7 +95,7 @@ jobs:
 
 ```yaml
       - name: Run PR-Sentry
-        uses: Ebuodinde/PR_SENTRY@v2
+        uses: Ebuodinde/PR_SENTRY@v3
         with:
           openai_api_key: ${{ secrets.OPENAI_API_KEY }}
 ```
@@ -104,7 +104,7 @@ jobs:
 
 ```yaml
       - name: Run PR-Sentry
-        uses: Ebuodinde/PR_SENTRY@v2
+        uses: Ebuodinde/PR_SENTRY@v3
         with:
           deepseek_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
 ```
@@ -113,7 +113,7 @@ jobs:
 
 ```yaml
       - name: Run PR-Sentry
-        uses: Ebuodinde/PR_SENTRY@v2
+        uses: Ebuodinde/PR_SENTRY@v3
         with:
           provider: "openai"
           api_key: ${{ secrets.OPENAI_API_KEY }}
@@ -131,7 +131,7 @@ Use multiple providers for intelligent cost routing:
 
 ```yaml
       - name: Run PR-Sentry
-        uses: Ebuodinde/PR_SENTRY@v2
+        uses: Ebuodinde/PR_SENTRY@v3
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           deepseek_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
@@ -331,7 +331,7 @@ Set the report language:
 
 ```yaml
 - name: Run PR-Sentry
-  uses: Ebuodinde/PR_SENTRY@v2
+  uses: Ebuodinde/PR_SENTRY@v3
   with:
     anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
     locale: "tr"  # en, tr
