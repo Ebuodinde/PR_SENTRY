@@ -277,6 +277,30 @@ docker build -t pr-sentry .
 docker run --env-file .env pr-sentry
 ```
 
+### CLI Tool
+
+Use PR-Sentry from the command line:
+
+```bash
+# Install
+pip install git+https://github.com/Ebuodinde/PR_SENTRY.git
+
+# Review a GitHub PR
+export GITHUB_TOKEN=your_token
+export ANTHROPIC_API_KEY=your_key
+python cli.py review --repo owner/repo --pr 123
+
+# Review a GitLab MR
+export GITLAB_TOKEN=your_token
+python cli.py review --gitlab --project-id 12345 --pr 67
+
+# Analyze any diff
+git diff HEAD~1 | python cli.py analyze
+
+# View usage statistics
+python cli.py stats --all-time
+```
+
 ---
 
 ## Examples
