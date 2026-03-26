@@ -54,6 +54,42 @@ async def fetch_commit_messages(client: httpx.AsyncClient, repo: str, pr_number:
     return [c["commit"]["message"] for c in commits]
 
 
+def detect_provider_config():
+    """Auto-detect provider from environment variables."""
+    # Explicit provider selection
+    provider = os.getenv("PR_SENTRY_PROVIDER", "").strip()
+    api_key = os.getenv("PR_SENTRY_API_KEY", "").strip()
+    model = os.getenv("PR_SENTRY_MODEL", "").strip()
+    
+    # Provider-specific keys (new format)
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+    deepseek_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
+    
+    # Auto-detect if no explicit provider
+    if not provider:
+        if anthropic_key:
+            provider = "anthropic"
+            api_key = anthropic_key
+        elif openai_key:
+            provider = "openai"
+            api_key = openai_key
+        elif deepseek_key:
+            provider = "deepseek"
+            api_key = deepseek_key
+    
+    # Use provider-specific key if api_key not set
+    if not api_key:
+        if provider == "anthropic":
+            api_key = anthropic_key
+        elif provider == "openai":
+            api_key = openai_key
+        elif provider == "deepseek":
+            api_key = deepseek_key
+    
+    return provider, api_key, model
+
+
 async def async_main():
     """Async entry point for PR-Sentry."""
     # Read environment variables
@@ -65,23 +101,29 @@ async def async_main():
         print("❌ GITHUB_TOKEN, GITHUB_REPOSITORY, and PR_NUMBER are required.")
         sys.exit(1)
 
-    provider = os.getenv("REVIEWER_PROVIDER", "anthropic").strip()
-    anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
-    dev_llm_api_key = os.getenv("DEV_LLM_API_KEY")
-    anthropic_model = os.getenv("ANTHROPIC_MODEL", "claude-4-5-haiku-20251015")
+    # Auto-detect provider configuration
+    provider, api_key, model = detect_provider_config()
+    
+    if not provider or not api_key:
+        print("❌ No LLM provider configured. Set one of:")
+        print("   - ANTHROPIC_API_KEY")
+        print("   - OPENAI_API_KEY")
+        print("   - DEEPSEEK_API_KEY")
+        print("   Or use PR_SENTRY_PROVIDER + PR_SENTRY_API_KEY")
+        sys.exit(1)
 
     try:
         reviewer = Reviewer(
             provider=provider,
-            anthropic_api_key=anthropic_api_key,
-            dev_llm_api_key=dev_llm_api_key,
-            anthropic_model=anthropic_model,
+            api_key=api_key,
+            model=model or None,
         )
     except ValueError as e:
         print(f"❌ {e}")
         sys.exit(1)
 
     print(f"🔍 PR-Sentry started: {repo} PR #{pr_number}")
+    print(f"🤖 Provider: {provider}")
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -121,8 +163,7 @@ async def async_main():
     if result["is_slop"]:
         print("⚠️  High AI content — LLM review skipped")
     else:
-        provider_label = "Claude (Anthropic)" if result["provider"] == "anthropic" else "Development mode"
-        print(f"✅ Provider: {provider_label}")
+        print(f"✅ Provider: {result['provider']}")
 
     if result["security_hints"]:
         print(f"🔐 Security warnings: {', '.join(result['security_hints'])}")
