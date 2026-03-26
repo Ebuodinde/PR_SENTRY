@@ -1,0 +1,49 @@
+# GitLab CI Configuration for PR-Sentry
+#
+# Add this to your .gitlab-ci.yml to enable PR-Sentry reviews on merge requests
+#
+# Required CI/CD Variables:
+#   - ANTHROPIC_API_KEY: Your Anthropic API key
+#   - GITLAB_TOKEN: GitLab personal access token with api scope
+#                   (or use CI_JOB_TOKEN for same-project reviews)
+#
+# Optional Variables:
+#   - DEEPSEEK_API_KEY: DeepSeek API key for cost optimization
+
+pr-sentry-review:
+  stage: test
+  image: python:3.11-slim
+  
+  # Only run on merge requests
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  
+  variables:
+    # Use project ID and MR IID from GitLab CI
+    PROJECT_ID: $CI_PROJECT_ID
+    MR_IID: $CI_MERGE_REQUEST_IID
+    GITLAB_URL: $CI_SERVER_URL
+  
+  before_script:
+    # Install dependencies
+    - pip install httpx python-dotenv anthropic
+    
+    # Clone PR-Sentry (or install from PyPI when available)
+    - pip install git+https://github.com/Ebuodinde/PR_SENTRY.git
+  
+  script:
+    - python -m pr_sentry.gitlab_runner
+  
+  # Allow failure so MR can still be merged
+  allow_failure: true
+
+
+# Alternative: Using Docker image (when available)
+# pr-sentry-review:
+#   stage: test
+#   image: ebuodinde/pr-sentry:latest
+#   rules:
+#     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+#   script:
+#     - pr-sentry review --gitlab
+#   allow_failure: true
