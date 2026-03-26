@@ -11,14 +11,12 @@ from config_loader import load_config, build_custom_prompt_additions, should_ign
 from llm_router import LLMRouter, calculate_pr_complexity
 from performance import PerformanceOptimizer, estimate_pr_size
 from metrics import get_tracker
-
-from llm_router import LLMRouter, calculate_pr_complexity
+from providers import get_provider, ProviderConfig
 
 load_dotenv()
 
-# Provider selection: production or development
-ALLOWED_PROVIDERS = {"anthropic", "development"}
-DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4.5"  # Updated default to Sonnet
+# Supported providers
+ALLOWED_PROVIDERS = {"anthropic", "openai", "deepseek"}
 
 
 # Zero-Nitpick system prompt (base)
@@ -41,146 +39,45 @@ If no critical issues:
 Remember: A false positive that wastes a developer's time is worse than a missed minor issue."""
 
 
-def _call_development_model(prompt: str, api_key: str, system_prompt: str = None) -> str:
-    """Development API call for local testing with exponential backoff."""
-    import time
-    import random
-
-    max_retries = 5
-    base_delay = 1.0
-    max_delay = 60.0
-    
-    effective_prompt = system_prompt or SYSTEM_PROMPT
-
-    payload = json.dumps({
-        "model": "gpt-4o-mini",
-        "messages": [
-            {"role": "system", "content": effective_prompt},
-            {"role": "user", "content": prompt}
-        ],
-        "max_tokens": 1000,
-        "temperature": 0.2
-    }).encode("utf-8")
-
-    for attempt in range(max_retries):
-        request = urllib.request.Request(
-            "https://api.openai.com/v1/chat/completions",
-            data=payload,
-            method="POST",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            }
-        )
-
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                data = json.loads(response.read().decode("utf-8"))
-            break  # Success, exit retry loop
-        except urllib.error.HTTPError as e:
-            # Retry on rate limit (429) or server errors (5xx)
-            if e.code in (429, 500, 502, 503, 504) and attempt < max_retries - 1:
-                delay = min(base_delay * (2 ** attempt), max_delay)
-                jitter = delay * 0.25 * (2 * random.random() - 1)
-                time.sleep(delay + jitter)
-                continue
-            raise RuntimeError(f"OpenAI API error: {e.code} — {e.reason}") from e
-        except urllib.error.URLError as e:
-            if attempt < max_retries - 1:
-                delay = min(base_delay * (2 ** attempt), max_delay)
-                jitter = delay * 0.25 * (2 * random.random() - 1)
-                time.sleep(delay + jitter)
-                continue
-            raise RuntimeError(f"Network error calling OpenAI: {e.reason}") from e
-        except json.JSONDecodeError as e:
-            raise RuntimeError(f"Invalid JSON response from OpenAI: {e}") from e
-
-    choices = data.get("choices")
-    if not isinstance(choices, list) or len(choices) == 0:
-        raise RuntimeError(f"Unexpected OpenAI response format: {data}")
-
-    first_choice = choices[0]
-    if not isinstance(first_choice, dict):
-        raise RuntimeError(f"Unexpected OpenAI response format: {data}")
-
-    message = first_choice.get("message")
-    if not isinstance(message, dict) or "content" not in message:
-        raise RuntimeError(f"Unexpected OpenAI response format: {data}")
-
-    return message["content"]
-
-
-def _call_anthropic(prompt: str, api_key: str, model: str, system_prompt: str = None) -> str:
-    """Anthropic API call for production with exponential backoff."""
-    import anthropic
-    import time
-    import random
-
-    max_retries = 5
-    base_delay = 1.0
-    max_delay = 60.0
-    
-    effective_prompt = system_prompt or SYSTEM_PROMPT
-
-    for attempt in range(max_retries):
-        try:
-            client = anthropic.Anthropic(api_key=api_key)
-            response = client.messages.create(
-                model=model,
-                max_tokens=1000,
-                system=effective_prompt,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            return response.content[0].text
-        except anthropic.RateLimitError as e:
-            if attempt < max_retries - 1:
-                # Exponential backoff: 1, 2, 4, 8, 16... capped at max_delay
-                delay = min(base_delay * (2 ** attempt), max_delay)
-                # Add jitter (±25%) to prevent thundering herd
-                jitter = delay * 0.25 * (2 * random.random() - 1)
-                time.sleep(delay + jitter)
-                continue
-            raise RuntimeError(f"Anthropic rate limit exceeded after {max_retries} attempts: {e}") from e
-        except anthropic.APIError as e:
-            if attempt < max_retries - 1:
-                delay = min(base_delay * (2 ** attempt), max_delay)
-                jitter = delay * 0.25 * (2 * random.random() - 1)
-                time.sleep(delay + jitter)
-                continue
-            raise RuntimeError(f"Anthropic API error: {e}") from e
-
-
 class Reviewer:
     """
     Main module that combines slop_detector, diff_parser, and the LLM API.
-    Supports custom configuration via sentry-config.yml.
+    Supports multiple LLM providers via the providers module.
     """
 
     def __init__(
         self,
         provider: Optional[str] = None,
-        anthropic_api_key: Optional[str] = None,
-        dev_llm_api_key: Optional[str] = None,
-        anthropic_model: Optional[str] = None,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
         config: Optional[Dict[str, Any]] = None,
     ):
         self.slop_detector = SlopDetector()
         self.diff_parser = DiffParser()
         self.config = config or load_config()
+        self.perf_optimizer = PerformanceOptimizer()
         
-        # Initialize LLM router for smart model selection
+        # Validate provider
+        self.provider_name = (provider or "").strip().lower()
+        if self.provider_name and self.provider_name not in ALLOWED_PROVIDERS:
+            raise ValueError(f"Invalid provider: {self.provider_name}. Use: {', '.join(ALLOWED_PROVIDERS)}")
+        
+        # Initialize provider
+        if not api_key:
+            raise ValueError(f"API key required for {self.provider_name or 'provider'}")
+        
+        self.llm_provider = get_provider(
+            provider_name=self.provider_name or None,
+            api_key=api_key,
+            model=model,
+        )
+        self.provider_name = self.llm_provider.name
+        
+        # Initialize LLM router for smart model selection (optional)
         try:
             self.llm_router = LLMRouter(config=self.config)
         except ValueError:
-            # No Anthropic key - will fail later if trying to use
             self.llm_router = None
-        
-        self.provider = (provider or "").strip()
-        if self.provider not in ALLOWED_PROVIDERS:
-            raise ValueError(f"Invalid REVIEWER_PROVIDER: {self.provider}. Use 'anthropic' or 'development'.")
-        self.anthropic_api_key = (anthropic_api_key or "").strip()
-        self.dev_llm_api_key = (dev_llm_api_key or "").strip()
-        self.anthropic_model = (anthropic_model or DEFAULT_ANTHROPIC_MODEL).strip() or DEFAULT_ANTHROPIC_MODEL
         
         # Build custom system prompt with user rules
         self.system_prompt = SYSTEM_PROMPT + build_custom_prompt_additions(self.config)
@@ -188,12 +85,6 @@ class Reviewer:
         # Update slop threshold from config
         if "slop_threshold" in self.config:
             self.slop_detector.SLOP_THRESHOLD = self.config["slop_threshold"]
-
-        if self.provider == "anthropic" and not self.anthropic_api_key:
-            raise ValueError("ANTHROPIC_API_KEY is required when provider='anthropic'.")
-
-        if self.provider == "development" and not self.dev_llm_api_key:
-            raise ValueError("DEV_LLM_API_KEY is required when provider='development'.")
 
     def review_pr(
         self,
@@ -229,7 +120,7 @@ class Reviewer:
                 "slop_score": slop_result["slop_score"],
                 "security_hints": [],
                 "review": f"⚠️ This PR appears to contain a high amount of AI-generated content (score: {slop_result['slop_score']}/100). Human review is required.",
-                "provider": self.provider,
+                "provider": self.provider_name,
                 "skipped_llm": True
             }
 
@@ -241,7 +132,6 @@ class Reviewer:
         perf_stats = {}
         
         if pr_size in ["large", "xlarge"]:
-            # Filter large PRs to focus on important files
             max_files = self.config.get("max_files_analyzed", 50)
             max_lines = self.config.get("max_lines_analyzed", 5000)
             parsed_files, perf_stats = self.perf_optimizer.filter_large_pr(
@@ -266,47 +156,10 @@ class Reviewer:
         
         has_security_patterns = len(all_hints) > 0
         
-        # Step 2.5: Smart model selection (if using router)
-        selected_model = None
-        if self.llm_router and self.provider == "anthropic":
-            max_diff_size = self.config.get("max_diff_size", 12000)
-            formatted_diff_preview = self.diff_parser.format_for_review(filtered_files, max_chars=max_diff_size)
-            
-            pr_analysis = {
-                "is_slop": False,  # Already checked above
-                "has_security_patterns": has_security_patterns,
-                "file_count": len(filtered_files),
-                "complexity_score": complexity_score,
-                "diff_content": formatted_diff_preview
-            }
-            
-            # Check if we should skip LLM entirely
-            should_skip, skip_reason = self.llm_router.should_skip_llm(pr_analysis)
-            if should_skip:
-                return {
-                    "is_slop": False,
-                    "slop_score": slop_result["slop_score"],
-                    "security_hints": all_hints,
-                    "review": f"ℹ️ LLM review skipped: {skip_reason}",
-                    "provider": self.provider,
-                    "skipped_llm": True,
-                    "routing_info": {
-                        "reason": skip_reason,
-                        "complexity": complexity_score
-                    }
-                }
-            
-            # Select best model
-            selected_model = self.llm_router.select_model(pr_analysis)
-            if selected_model:
-                # Override the model if router suggests something different
-                if selected_model.provider == "anthropic":
-                    self.anthropic_model = selected_model.model
-        
         max_diff_size = self.config.get("max_diff_size", 12000)
         formatted_diff = self.diff_parser.format_for_review(filtered_files, max_chars=max_diff_size)
 
-        # Step 3: LLM review
+        # Step 3: LLM review using provider
         prompt = f"""PR Title: {title}
 
 PR Description:
@@ -315,12 +168,12 @@ PR Description:
 Code Changes:
 {formatted_diff}"""
 
-        if self.provider == "anthropic":
-            review_text = _call_anthropic(prompt, self.anthropic_api_key, self.anthropic_model, self.system_prompt)
-        elif self.provider == "development":
-            review_text = _call_development_model(prompt, self.dev_llm_api_key, self.system_prompt)
-        else:
-            raise RuntimeError(f"Invalid reviewer provider state: {self.provider}")
+        try:
+            response = self.llm_provider.review_code(prompt, self.system_prompt)
+            review_text = response.content
+            model_used = response.model
+        except Exception as e:
+            raise RuntimeError(f"LLM API error ({self.provider_name}): {e}")
 
         # Step 4: Generate PR summary (optional, based on config)
         summary_text = ""
@@ -333,14 +186,9 @@ Code Changes:
             "security_hints": all_hints,
             "review": review_text,
             "summary": summary_text,
-            "provider": self.provider,
+            "provider": self.provider_name,
+            "model": model_used,
             "skipped_llm": False,
-            "routing_info": {
-                "model": selected_model.model if selected_model else self.anthropic_model,
-                "provider": selected_model.provider if selected_model else self.provider,
-                "complexity": complexity_score,
-                "cost_per_million": selected_model.cost_per_million if selected_model else 3.0
-            } if selected_model or self.llm_router else {},
             "performance": {
                 "pr_size": pr_size,
                 **perf_stats
@@ -349,7 +197,6 @@ Code Changes:
 
     def _generate_summary(self, title: str, body: str, files: list) -> str:
         """Generate a brief summary of the PR changes."""
-        # Build a lightweight summary without LLM for simple cases
         file_count = len(files)
         total_additions = sum(f["additions"] for f in files)
         total_deletions = sum(f["deletions"] for f in files)
@@ -370,11 +217,30 @@ Code Changes:
 
 # --- Test Area ---
 if __name__ == "__main__":
+    # Auto-detect provider from environment
+    provider = os.getenv("PR_SENTRY_PROVIDER", "")
+    api_key = os.getenv("PR_SENTRY_API_KEY", "")
+    
+    # Fallback to provider-specific keys
+    if not api_key:
+        if os.getenv("ANTHROPIC_API_KEY"):
+            provider = "anthropic"
+            api_key = os.getenv("ANTHROPIC_API_KEY")
+        elif os.getenv("OPENAI_API_KEY"):
+            provider = "openai"
+            api_key = os.getenv("OPENAI_API_KEY")
+        elif os.getenv("DEEPSEEK_API_KEY"):
+            provider = "deepseek"
+            api_key = os.getenv("DEEPSEEK_API_KEY")
+    
+    if not api_key:
+        print("Error: No API key found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or DEEPSEEK_API_KEY")
+        exit(1)
+    
     reviewer = Reviewer(
-        provider=os.getenv("REVIEWER_PROVIDER", "anthropic"),
-        anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
-        dev_llm_api_key=os.getenv("DEV_LLM_API_KEY"),
-        anthropic_model=os.getenv("ANTHROPIC_MODEL", DEFAULT_ANTHROPIC_MODEL),
+        provider=provider,
+        api_key=api_key,
+        model=os.getenv("PR_SENTRY_MODEL"),
     )
 
     test_diff = """diff --git a/src/auth.py b/src/auth.py
@@ -401,4 +267,5 @@ index 1234567..abcdefg 100644
     print(f"Slop? {result['is_slop']} (score: {result['slop_score']})")
     print(f"Security warnings: {result['security_hints'] or 'None'}")
     print(f"Provider: {result['provider']}")
+    print(f"Model: {result.get('model', 'N/A')}")
     print(f"\nReview:\n{result['review']}")

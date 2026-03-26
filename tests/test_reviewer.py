@@ -1,74 +1,92 @@
 """Tests for reviewer.py"""
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, Mock
 from reviewer import Reviewer, SYSTEM_PROMPT
 
 
 class TestReviewerInit:
     """Test Reviewer initialization."""
 
-    def test_init_anthropic_provider(self):
+    @patch("reviewer.get_provider")
+    def test_init_anthropic_provider(self, mock_get_provider):
         """Anthropic provider with valid key should initialize."""
+        mock_provider = Mock()
+        mock_provider.name = "anthropic"
+        mock_get_provider.return_value = mock_provider
+        
         reviewer = Reviewer(
             provider="anthropic",
-            anthropic_api_key="sk-ant-test-key",
-            anthropic_model="claude-4-5-haiku-20251015"
+            api_key="sk-ant-test-key",
+            model="claude-sonnet-4-20250514"
         )
-        assert reviewer.provider == "anthropic"
-        assert reviewer.anthropic_api_key == "sk-ant-test-key"
+        assert reviewer.provider_name == "anthropic"
 
-    def test_init_development_provider(self):
-        """Development provider with valid key should initialize."""
+    @patch("reviewer.get_provider")
+    def test_init_openai_provider(self, mock_get_provider):
+        """OpenAI provider with valid key should initialize."""
+        mock_provider = Mock()
+        mock_provider.name = "openai"
+        mock_get_provider.return_value = mock_provider
+        
         reviewer = Reviewer(
-            provider="development",
-            dev_llm_api_key="sk-openai-test-key"
+            provider="openai",
+            api_key="sk-openai-test-key"
         )
-        assert reviewer.provider == "development"
+        assert reviewer.provider_name == "openai"
 
     def test_init_invalid_provider(self):
         """Invalid provider should raise ValueError."""
-        with pytest.raises(ValueError, match="Invalid REVIEWER_PROVIDER"):
-            Reviewer(provider="invalid_provider")
+        with pytest.raises(ValueError, match="Invalid provider"):
+            Reviewer(provider="invalid_provider", api_key="test")
 
-    def test_init_anthropic_missing_key(self):
-        """Anthropic provider without key should raise ValueError."""
-        with pytest.raises(ValueError, match="ANTHROPIC_API_KEY is required"):
-            Reviewer(provider="anthropic", anthropic_api_key="")
+    def test_init_missing_key(self):
+        """Missing API key should raise ValueError."""
+        with pytest.raises(ValueError, match="API key required"):
+            Reviewer(provider="anthropic", api_key="")
 
-    def test_init_development_missing_key(self):
-        """Development provider without key should raise ValueError."""
-        with pytest.raises(ValueError, match="DEV_LLM_API_KEY is required"):
-            Reviewer(provider="development", dev_llm_api_key="")
-
-    def test_init_default_model(self):
-        """Default model should be set when not provided."""
+    @patch("reviewer.get_provider")
+    def test_init_with_model(self, mock_get_provider):
+        """Custom model should be passed to provider."""
+        mock_provider = Mock()
+        mock_provider.name = "openai"
+        mock_get_provider.return_value = mock_provider
+        
         reviewer = Reviewer(
-            provider="anthropic",
-            anthropic_api_key="sk-ant-test-key"
+            provider="openai",
+            api_key="sk-test",
+            model="gpt-4-turbo"
         )
-        assert reviewer.anthropic_model == "claude-sonnet-4.5"
-
-    def test_init_custom_model(self):
-        """Custom model should be used when provided."""
-        reviewer = Reviewer(
-            provider="anthropic",
-            anthropic_api_key="sk-ant-test-key",
-            anthropic_model="claude-4-sonnet-20251015"
+        
+        mock_get_provider.assert_called_once_with(
+            provider_name="openai",
+            api_key="sk-test",
+            model="gpt-4-turbo",
         )
-        assert reviewer.anthropic_model == "claude-4-sonnet-20251015"
 
 
 class TestReviewerReviewPR:
     """Test PR review functionality."""
 
     @pytest.fixture
-    def reviewer(self):
-        """Create a Reviewer instance for testing."""
-        return Reviewer(
-            provider="development",
-            dev_llm_api_key="sk-test-key"
+    def mock_provider(self):
+        """Create a mock provider."""
+        provider = Mock()
+        provider.name = "openai"
+        provider.review_code.return_value = Mock(
+            content="✅ No critical issues found.",
+            model="gpt-4o"
         )
+        return provider
+
+    @pytest.fixture
+    def reviewer(self, mock_provider):
+        """Create a Reviewer instance for testing."""
+        with patch("reviewer.get_provider", return_value=mock_provider):
+            return Reviewer(
+                provider="openai",
+                api_key="sk-test-key"
+            )
 
     def test_review_pr_slop_detected(self, reviewer):
         """High slop PR should skip LLM and return warning."""
@@ -90,11 +108,8 @@ class TestReviewerReviewPR:
         assert result["slop_score"] >= 60
         assert "AI-generated content" in result["review"]
 
-    @patch("reviewer._call_development_model")
-    def test_review_pr_clean_pr(self, mock_llm, reviewer):
+    def test_review_pr_clean_pr(self, reviewer, mock_provider):
         """Clean PR should call LLM and return review."""
-        mock_llm.return_value = "✅ No critical issues found."
-        
         result = reviewer.review_pr(
             title="Fix null pointer in auth",
             body="Added null check before token assignment.",
@@ -110,12 +125,14 @@ class TestReviewerReviewPR:
         
         assert result["is_slop"] is False
         assert result["skipped_llm"] is False
-        assert mock_llm.called
+        assert mock_provider.review_code.called
 
-    @patch("reviewer._call_development_model")
-    def test_review_pr_security_hints_collected(self, mock_llm, reviewer):
+    def test_review_pr_security_hints_collected(self, reviewer, mock_provider):
         """Security hints from diff should be collected."""
-        mock_llm.return_value = "🔴 CRITICAL: Hardcoded API key"
+        mock_provider.review_code.return_value = Mock(
+            content="🔴 CRITICAL: Hardcoded API key",
+            model="gpt-4o"
+        )
         
         result = reviewer.review_pr(
             title="Add config",
@@ -145,7 +162,6 @@ class TestReviewerReviewPR:
         )
         
         expected_keys = {"is_slop", "slop_score", "security_hints", "review", "provider", "skipped_llm"}
-        # Note: summary is only added for non-slop PRs
         assert expected_keys.issubset(set(result.keys()))
 
 
