@@ -161,9 +161,9 @@ When reporting bugs, please include:
 ## Feature Requests
 
 We welcome feature requests! Please:
-1. Check if it's already in [TODO.md](TODO.md)
-2. Open an issue describing the feature
-3. Explain the use case and benefits
+1. Open an issue describing the feature
+2. Explain the use case and benefits
+3. Provide examples if possible
 
 ## Questions?
 

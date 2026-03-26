@@ -245,6 +245,6 @@ MIT — free for open source and commercial use.
 
 ---
 
-## Roadmap
+## Credits
 
-See [TODO.md](TODO.md) for planned features and improvements.
+Developed by [Ebuodinde](https://github.com/Ebuodinde) with assistance from GitHub Copilot.
