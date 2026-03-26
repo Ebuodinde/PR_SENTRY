@@ -8,6 +8,8 @@ from dotenv import load_dotenv
 from slop_detector import SlopDetector
 from diff_parser import DiffParser
 from config_loader import load_config, build_custom_prompt_additions, should_ignore_file
+from llm_router import LLMRouter, calculate_pr_complexity
+from performance import PerformanceOptimizer, estimate_pr_size
 
 from llm_router import LLMRouter, calculate_pr_complexity
 
@@ -233,6 +235,20 @@ class Reviewer:
         # Step 2: Parse the diff
         parsed_files = self.diff_parser.parse_diff(raw_diff)
         
+        # Performance optimization: Smart file filtering for large PRs
+        pr_size = estimate_pr_size(parsed_files)
+        perf_stats = {}
+        
+        if pr_size in ["large", "xlarge"]:
+            # Filter large PRs to focus on important files
+            max_files = self.config.get("max_files_analyzed", 50)
+            max_lines = self.config.get("max_lines_analyzed", 5000)
+            parsed_files, perf_stats = self.perf_optimizer.filter_large_pr(
+                parsed_files,
+                max_files=max_files,
+                max_lines=max_lines
+            )
+        
         # Filter out ignored files based on config
         filtered_files = [
             f for f in parsed_files 
@@ -323,7 +339,11 @@ Code Changes:
                 "provider": selected_model.provider if selected_model else self.provider,
                 "complexity": complexity_score,
                 "cost_per_million": selected_model.cost_per_million if selected_model else 3.0
-            } if selected_model or self.llm_router else {}
+            } if selected_model or self.llm_router else {},
+            "performance": {
+                "pr_size": pr_size,
+                **perf_stats
+            } if perf_stats else {"pr_size": pr_size}
         }
 
     def _generate_summary(self, title: str, body: str, files: list) -> str:
