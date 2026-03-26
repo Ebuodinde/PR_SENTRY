@@ -1,5 +1,5 @@
 name: "PR-Sentry"
-description: "Zero-Nitpick Claude code review. Catches security issues and AI-generated slop before merge."
+description: "Zero-Nitpick AI code review. Multi-provider support: Claude, GPT-4, DeepSeek."
 author: "Ebuodinde"
 
 branding:
@@ -7,11 +7,24 @@ branding:
   color: "red"
 
 inputs:
+  provider:
+    description: "LLM provider (anthropic, openai, deepseek). Auto-detects if not set."
+    required: false
+    default: ""
+  api_key:
+    description: "API key for the selected provider"
+    required: false
   anthropic_api_key:
-    description: "Anthropic API key"
-    required: true
+    description: "Anthropic API key (legacy, use api_key instead)"
+    required: false
+  openai_api_key:
+    description: "OpenAI API key"
+    required: false
   deepseek_api_key:
-    description: "DeepSeek API key (optional, for cost optimization)"
+    description: "DeepSeek API key"
+    required: false
+  model:
+    description: "Model override (e.g., gpt-4o, claude-sonnet-4-20250514)"
     required: false
   locale:
     description: "Report language (en, tr)"
@@ -36,5 +49,11 @@ runs:
         GITHUB_TOKEN: ${{ github.token }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
+        PR_SENTRY_PROVIDER: ${{ inputs.provider }}
+        PR_SENTRY_API_KEY: ${{ inputs.api_key }}
+        PR_SENTRY_MODEL: ${{ inputs.model }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        OPENAI_API_KEY: ${{ inputs.openai_api_key }}
+        DEEPSEEK_API_KEY: ${{ inputs.deepseek_api_key }}
+        PR_SENTRY_LOCALE: ${{ inputs.locale }}
       run: python ${{ github.action_path }}/main.py

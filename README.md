@@ -11,7 +11,8 @@ PR-Sentry protects your repository from AI-generated slop and security vulnerabi
 
 **Key Features:**
 - 🤖 **AI Slop Detection** — Filters AI-generated noise before expensive LLM calls
-- 💰 **Smart Multi-LLM Routing** — 60% cost reduction with optional DeepSeek integration
+- 🔄 **Multi-Provider Support** — Claude, GPT-4, DeepSeek — use any LLM you prefer
+- 💰 **Smart Multi-LLM Routing** — 60% cost reduction with intelligent model cascading
 - 🔒 **Advanced Security Scanning** — 50+ vulnerability patterns, entropy analysis, cloud credentials
 - 🚫 **Zero-Nitpick** — Only reports crashes, security issues, race conditions—no style complaints
 - ⚡ **Lightweight** — No external database, no servers, works out-of-the-box
@@ -68,9 +69,7 @@ PR opened
 
 ## Quick Start
 
-### Basic Setup (Single API Key)
-
-Add this file to your repository as `.github/workflows/pr-sentry.yml`:
+### Option 1: Anthropic (Claude) — Recommended
 
 ```yaml
 name: PR-Sentry Review
@@ -92,29 +91,51 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
-Then add your API key to **Settings → Secrets → Actions**:
+### Option 2: OpenAI (GPT-4)
 
+```yaml
+      - name: Run PR-Sentry
+        uses: Ebuodinde/PR_SENTRY@v2
+        with:
+          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
 ```
-ANTHROPIC_API_KEY = sk-ant-...
+
+### Option 3: DeepSeek (Budget-Friendly)
+
+```yaml
+      - name: Run PR-Sentry
+        uses: Ebuodinde/PR_SENTRY@v2
+        with:
+          deepseek_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
 ```
 
-That's it. No provider selection. No extra keys. No servers. No databases.
+### Option 4: Explicit Provider Selection
 
-### Cost-Optimized Setup (Optional)
+```yaml
+      - name: Run PR-Sentry
+        uses: Ebuodinde/PR_SENTRY@v2
+        with:
+          provider: "openai"
+          api_key: ${{ secrets.OPENAI_API_KEY }}
+          model: "gpt-4o"  # optional model override
+```
 
-Want to save 60% on API costs? Add DeepSeek:
+**Get API keys:**
+- [Anthropic Console](https://console.anthropic.com/)
+- [OpenAI Platform](https://platform.openai.com/)
+- [DeepSeek Platform](https://platform.deepseek.com/) (free tier available)
+
+### Cost-Optimized Setup (Multi-Provider)
+
+Use multiple providers for intelligent cost routing:
 
 ```yaml
       - name: Run PR-Sentry
         uses: Ebuodinde/PR_SENTRY@v2
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          deepseek_api_key: ${{ secrets.DEEPSEEK_API_KEY }}  # Optional
+          deepseek_api_key: ${{ secrets.DEEPSEEK_API_KEY }}
 ```
-
-Get API keys:
-- [Anthropic Console](https://console.anthropic.com/) (required)
-- [DeepSeek Platform](https://platform.deepseek.com/) (optional, free tier available)
 
 **Routing Logic:**
 - AI slop → Skip LLM entirely (free)
@@ -199,9 +220,21 @@ PR-Sentry is designed to minimize API costs while maximizing review quality.
 
 | Input | Description | Default |
 |---|---|---|
+| `provider` | LLM provider (anthropic, openai, deepseek) | Auto-detect |
+| `api_key` | API key for selected provider | — |
 | `anthropic_api_key` | Anthropic API key | — |
-| `anthropic_model` | Claude model to use | `claude-4-5-haiku-20251015` |
-| `sentry_lang` | Report language (en/tr) | `en` |
+| `openai_api_key` | OpenAI API key | — |
+| `deepseek_api_key` | DeepSeek API key | — |
+| `model` | Model override | Provider default |
+| `locale` | Report language (en/tr) | `en` |
+
+### Supported Models
+
+| Provider | Models |
+|----------|--------|
+| **Anthropic** | `claude-sonnet-4-20250514`, `claude-haiku-3-5-20241022`, `claude-opus-4-20250514` |
+| **OpenAI** | `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `gpt-3.5-turbo` |
+| **DeepSeek** | `deepseek-chat`, `deepseek-coder` |
 
 ### Advanced Configuration (Optional)
 
@@ -337,6 +370,13 @@ pr-sentry/
 ├── cli.py               # CLI tool for local reviews
 ├── reviewer.py          # LLM integration with smart routing
 ├── llm_router.py        # Multi-LLM cascading logic
+├── providers/           # Multi-provider LLM support
+│   ├── __init__.py
+│   ├── base.py          # BaseProvider interface
+│   ├── factory.py       # Provider auto-detection
+│   ├── anthropic_provider.py
+│   ├── openai_provider.py
+│   └── deepseek_provider.py
 ├── performance.py       # Large PR optimization
 ├── metrics.py           # Token/cost tracking
 ├── context_builder.py   # Lightweight RAG context
@@ -347,7 +387,7 @@ pr-sentry/
 ├── github_commenter.py  # PR comment formatting (i18n)
 ├── config_loader.py     # YAML config loading
 ├── locales/             # Translation files (en, tr)
-├── tests/               # Pytest test suite (219 tests)
+├── tests/               # Pytest test suite
 └── examples/            # Usage examples (GitHub, GitLab)
 ```
 
