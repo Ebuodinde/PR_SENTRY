@@ -334,17 +334,22 @@ pytest --cov=. --cov-report=html
 
 ```
 pr-sentry/
-├── main.py              # Entry point, async GitHub API integration
+├── main.py              # Entry point, GitHub Actions integration
+├── cli.py               # CLI tool for local reviews
 ├── reviewer.py          # LLM integration with smart routing
-├── llm_router.py        # Multi-LLM cascading logic (NEW)
+├── llm_router.py        # Multi-LLM cascading logic
+├── performance.py       # Large PR optimization
+├── metrics.py           # Token/cost tracking
+├── context_builder.py   # Lightweight RAG context
+├── gitlab_client.py     # GitLab CI/CD support
 ├── slop_detector.py     # AI-generated content detection
 ├── diff_parser.py       # Diff parsing, security scanning
 ├── entropy_scanner.py   # Entropy-based secret detection
 ├── github_commenter.py  # PR comment formatting (i18n)
 ├── config_loader.py     # YAML config loading
 ├── locales/             # Translation files (8 languages)
-├── tests/               # Pytest test suite (126 tests)
-└── examples/            # Usage examples
+├── tests/               # Pytest test suite (219 tests)
+└── examples/            # Usage examples (GitHub, GitLab)
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
