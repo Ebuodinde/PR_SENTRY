@@ -35,20 +35,22 @@ PR opened
       → High slop score? Flag immediately, skip LLM.
       → Clean? Continue.
   → Smart Model Selection (complexity + security analysis)
-      → Simple PR + DeepSeek available? Use DeepSeek ($0.25/M)
-      → Security patterns detected? Use Claude Sonnet ($3/M)
-      → Complex PR? Use Claude Sonnet ($3/M)
+      → Simple PR? Use fast model
+      → Security patterns detected? Use premium model
+      → Complex PR? Use premium model
   → Diff parsed + security pattern scan (regex + entropy analysis)
   → LLM review (security issues, crashes, race conditions only)
   → PR summary generated (file stats, additions/deletions)
   → Single comment posted to PR
 ```
 
+**Estimated Cost:** ~$0.01-0.05 per average PR (varies by size and complexity)
+
 **Zero-Nitpick philosophy:** PR-Sentry never comments on style, formatting, or anything a linter can catch. Only runtime crashes, security vulnerabilities, race conditions, and memory leaks.
 
 **Smart Routing:**
-- Default: Works with just Anthropic key (Haiku → Sonnet cascade)
-- Optional: Add DeepSeek key for 60% cost reduction on simple PRs
+- Default: Works with just Anthropic key (smart model cascading)
+- Optional: Add DeepSeek key for additional cost savings on simple PRs
 - Security-critical code always uses premium models
 
 **Security scanning:**
@@ -110,10 +112,10 @@ Get API keys:
 - [DeepSeek Platform](https://platform.deepseek.com/) (optional, free tier available)
 
 **Routing Logic:**
-- AI slop → Skip LLM (free)
-- Simple PR + DeepSeek key → DeepSeek ($0.25/M tokens)
-- Security patterns → Claude Sonnet ($3/M tokens)
-- Complex PR → Claude Sonnet ($3/M tokens)
+- AI slop → Skip LLM entirely (free)
+- Simple PR + DeepSeek key → Use DeepSeek (cheapest)
+- Security patterns → Use premium Claude model
+- Complex PR → Use premium Claude model
 
 ---
 
@@ -164,33 +166,25 @@ CodeRabbit floods PR timelines with verbose comments on whitespace and naming. C
 
 ## 💰 Cost Optimization
 
-### Tier 1: Single Provider (Default)
-**Works out-of-the-box with just Anthropic key:**
+PR-Sentry is designed to minimize API costs while maximizing review quality.
 
-| Scenario | Model | Cost | Average |
-|----------|-------|------|---------|
-| AI slop detected | Skip | $0 | ~30% of PRs |
-| Simple PR | Claude Haiku | $1/M tokens | ~40% of PRs |
-| Security patterns | Claude Sonnet | $3/M tokens | ~15% of PRs |
-| Complex PR | Claude Sonnet | $3/M tokens | ~15% of PRs |
+### Estimated Costs
 
-**Average: ~$0.02-0.04 per PR**
+| PR Size | Estimated Cost |
+|---------|----------------|
+| Small (< 100 lines) | ~$0.005 - $0.01 |
+| Medium (100-500 lines) | ~$0.01 - $0.03 |
+| Large (500+ lines) | ~$0.03 - $0.05 |
+| AI slop detected | $0 (skipped) |
 
-### Tier 2: Multi-Provider (Optional)
-**Add DeepSeek for 60% cost reduction:**
+**Monthly estimate (100 PRs/month):** $1-5 depending on PR complexity
 
-| Scenario | Model | Cost | Savings |
-|----------|-------|------|---------|
-| AI slop detected | Skip | $0 | 100% |
-| Simple PR (no security) | DeepSeek v3 | $0.25/M | 75% vs Haiku |
-| Security patterns | Claude Sonnet | $3/M | - |
-| Complex PR | Claude Sonnet | $3/M | - |
+### Cost Saving Strategies
 
-**Average: ~$0.01-0.02 per PR (50-60% reduction)**
-
-**Example: 100 PRs/month**
-- Tier 1 (Anthropic only): **$2-4/month**
-- Tier 2 (+ DeepSeek): **$1-2/month**
+1. **AI Slop Detection:** ~30% of PRs are flagged and skipped, saving 100% on those
+2. **Smart Model Routing:** Simple PRs use cheaper models automatically
+3. **DeepSeek Integration:** Optional - add DeepSeek key for additional savings on non-security PRs
+4. **Large PR Filtering:** PRs with 50+ files are auto-filtered to essential files only
 
 ---
 
@@ -239,7 +233,7 @@ Set the report language:
   uses: Ebuodinde/PR_SENTRY@v2
   with:
     anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-    locale: "tr"  # en, tr, es, fr, de, ja, zh, ru
+    locale: "tr"  # en, tr
 ```
 
 ### GitLab CI/CD Support
@@ -347,7 +341,7 @@ pr-sentry/
 ├── entropy_scanner.py   # Entropy-based secret detection
 ├── github_commenter.py  # PR comment formatting (i18n)
 ├── config_loader.py     # YAML config loading
-├── locales/             # Translation files (8 languages)
+├── locales/             # Translation files (en, tr)
 ├── tests/               # Pytest test suite (219 tests)
 └── examples/            # Usage examples (GitHub, GitLab)
 ```
