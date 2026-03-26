@@ -1,6 +1,6 @@
 name: "PR-Sentry"
 description: "Zero-Nitpick Claude code review. Catches security issues and AI-generated slop before merge."
-author: "pr-sentry"
+author: "Ebuodinde"
 
 branding:
   icon: "shield"
@@ -10,6 +10,13 @@ inputs:
   anthropic_api_key:
     description: "Anthropic API key"
     required: true
+  deepseek_api_key:
+    description: "DeepSeek API key (optional, for cost optimization)"
+    required: false
+  locale:
+    description: "Report language (en, tr)"
+    required: false
+    default: "en"
 
 runs:
   using: "composite"

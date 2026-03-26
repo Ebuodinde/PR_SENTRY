@@ -1,5 +1,10 @@
 # 🛡️ PR-Sentry
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Tests](https://img.shields.io/badge/tests-219%20passing-brightgreen)](https://github.com/Ebuodinde/PR_SENTRY)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![GitHub Release](https://img.shields.io/github/v/release/Ebuodinde/PR_SENTRY)](https://github.com/Ebuodinde/PR_SENTRY/releases)
+
 **Zero-Nitpick AI code review for open source maintainers.**
 
 PR-Sentry protects your repository from AI-generated slop and security vulnerabilities — without spamming your PR timeline with linter-style noise.

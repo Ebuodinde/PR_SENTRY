@@ -119,6 +119,7 @@ index 1234567..abcdefg 100644
     def test_security_scan_google_api_key(self, parser):
         """Google API Key should be detected."""
         # Google API keys: AIza + exactly 35 alphanumeric/dash/underscore chars
+        # gitleaks:allow - This is a test fixture, not a real API key
         diff = """diff --git a/config.py b/config.py
 --- a/config.py
 +++ b/config.py
