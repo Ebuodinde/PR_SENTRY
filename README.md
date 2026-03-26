@@ -236,11 +236,34 @@ Set the report language:
 
 ```yaml
 - name: Run PR-Sentry
-  uses: Ebuodinde/PR_SENTRY@v1
+  uses: Ebuodinde/PR_SENTRY@v2
   with:
     anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-    sentry_lang: "tr"  # or "en"
+    locale: "tr"  # en, tr, es, fr, de, ja, zh, ru
 ```
+
+### GitLab CI/CD Support
+
+PR-Sentry also works with GitLab merge requests! Add to your `.gitlab-ci.yml`:
+
+```yaml
+pr-sentry-review:
+  stage: test
+  image: python:3.11-slim
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  before_script:
+    - pip install git+https://github.com/Ebuodinde/PR_SENTRY.git
+  script:
+    - python -m pr_sentry.gitlab_runner
+  allow_failure: true
+```
+
+Required CI/CD Variables:
+- `ANTHROPIC_API_KEY`: Your Anthropic API key
+- `GITLAB_TOKEN`: GitLab personal access token (api scope)
+
+See [examples/gitlab-ci.yml](examples/gitlab-ci.yml) for full configuration.
 
 ### Docker Usage
 
