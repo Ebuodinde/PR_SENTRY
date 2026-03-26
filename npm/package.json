@@ -1,0 +1,40 @@
+{
+  "name": "@pr-sentry/cli",
+  "version": "2.0.0",
+  "description": "Zero-Nitpick AI code review for PR/MR - CLI tool",
+  "keywords": [
+    "code-review",
+    "ai",
+    "github",
+    "gitlab",
+    "pull-request",
+    "merge-request",
+    "security",
+    "claude",
+    "anthropic"
+  ],
+  "author": "Ebuodinde",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ebuodinde/PR_SENTRY.git"
+  },
+  "homepage": "https://github.com/Ebuodinde/PR_SENTRY",
+  "bugs": {
+    "url": "https://github.com/Ebuodinde/PR_SENTRY/issues"
+  },
+  "bin": {
+    "pr-sentry": "./bin/pr-sentry.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/check-python.js"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "files": [
+    "bin/",
+    "scripts/",
+    "README.md"
+  ]
+}
