@@ -10,6 +10,7 @@ from diff_parser import DiffParser
 from config_loader import load_config, build_custom_prompt_additions, should_ignore_file
 from llm_router import LLMRouter, calculate_pr_complexity
 from performance import PerformanceOptimizer, estimate_pr_size
+from metrics import get_tracker
 
 from llm_router import LLMRouter, calculate_pr_complexity
 
