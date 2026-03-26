@@ -1,7 +1,7 @@
 # 🛡️ PR-Sentry
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-219%20passing-brightgreen)](https://github.com/Ebuodinde/PR_SENTRY)
+[![Tests](https://img.shields.io/badge/tests-262%20passing-brightgreen)](https://github.com/Ebuodinde/PR_SENTRY)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![GitHub Release](https://img.shields.io/github/v/release/Ebuodinde/PR_SENTRY)](https://github.com/Ebuodinde/PR_SENTRY/releases)
 
@@ -142,6 +142,69 @@ Use multiple providers for intelligent cost routing:
 - Simple PR + DeepSeek key → Use DeepSeek (cheapest)
 - Security patterns → Use premium Claude model
 - Complex PR → Use premium Claude model
+
+---
+
+## 🤖 Using with AI Assistants
+
+PR-Sentry works seamlessly with AI coding assistants. Just share this repository and ask them to set it up!
+
+### Claude Code / Cursor / Windsurf / GitHub Copilot
+
+Simply tell your AI assistant:
+
+> "Add PR-Sentry to my repository for automated code review. Use this repo: https://github.com/Ebuodinde/PR_SENTRY"
+
+Or be more specific:
+
+> "Set up PR-Sentry workflow in my repo. I have an OpenAI API key stored as OPENAI_API_KEY in my GitHub secrets."
+
+**The AI assistant will:**
+1. Create `.github/workflows/pr-sentry.yml`
+2. Configure the correct provider based on your available API keys
+3. Set up proper permissions
+
+### Copy-Paste Prompt
+
+```
+Add PR-Sentry (https://github.com/Ebuodinde/PR_SENTRY) to this repository:
+
+1. Create .github/workflows/pr-sentry.yml
+2. Use [ANTHROPIC_API_KEY / OPENAI_API_KEY / DEEPSEEK_API_KEY] from secrets
+3. Trigger on pull_request opened and synchronize events
+4. Grant pull-requests: write permission
+```
+
+### MCP Server (Model Context Protocol)
+
+PR-Sentry is available as an MCP server for direct integration with Claude Code, Cursor, and other MCP-compatible tools.
+
+**Setup in Claude Code:**
+
+Add to your `~/.config/claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "pr-sentry": {
+      "command": "python",
+      "args": ["/path/to/pr-sentry/mcp_server.py"]
+    }
+  }
+}
+```
+
+**Available Tools:**
+- `review_diff` — Review code diff for security issues and bugs
+- `check_slop` — Detect AI-generated content (slop score)
+- `scan_security` — Scan for 50+ security vulnerability patterns
+
+**Usage in Claude Code:**
+```
+> Use pr-sentry to review this diff: [paste diff]
+> Check if this PR description is AI-generated slop
+> Scan this code for security vulnerabilities
+```
 
 ---
 

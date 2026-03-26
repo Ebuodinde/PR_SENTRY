@@ -1,0 +1,69 @@
+{
+  "name": "pr-sentry-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for PR-Sentry code review",
+  "main": "mcp_server.py",
+  "scripts": {
+    "start": "python mcp_server.py"
+  },
+  "mcp": {
+    "name": "pr-sentry",
+    "description": "Zero-Nitpick AI code review for PRs",
+    "tools": [
+      {
+        "name": "review_diff",
+        "description": "Review a code diff for security issues and bugs",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "diff": {
+              "type": "string",
+              "description": "The git diff to review"
+            },
+            "title": {
+              "type": "string",
+              "description": "PR or commit title"
+            },
+            "description": {
+              "type": "string",
+              "description": "PR or commit description"
+            }
+          },
+          "required": ["diff"]
+        }
+      },
+      {
+        "name": "check_slop",
+        "description": "Check if content appears to be AI-generated slop",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "description": "Title to analyze"
+            },
+            "body": {
+              "type": "string",
+              "description": "Body/description to analyze"
+            }
+          },
+          "required": ["title", "body"]
+        }
+      },
+      {
+        "name": "scan_security",
+        "description": "Scan code diff for security vulnerabilities",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "diff": {
+              "type": "string",
+              "description": "The git diff to scan"
+            }
+          },
+          "required": ["diff"]
+        }
+      }
+    ]
+  }
+}
