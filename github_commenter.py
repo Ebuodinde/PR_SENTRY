@@ -1,9 +1,32 @@
 import os
+import json
 from typing import Dict, Any
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Supported languages
+SUPPORTED_LANGUAGES = {"en", "tr"}
+DEFAULT_LANGUAGE = "en"
+
+
+def load_locale(lang: str) -> Dict[str, str]:
+    """Load locale strings from JSON file."""
+    if lang not in SUPPORTED_LANGUAGES:
+        lang = DEFAULT_LANGUAGE
+    
+    locale_path = Path(__file__).parent / "locales" / f"{lang}.json"
+    
+    try:
+        with open(locale_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        # Fallback to English
+        fallback_path = Path(__file__).parent / "locales" / "en.json"
+        with open(fallback_path, "r", encoding="utf-8") as f:
+            return json.load(f)
 
 
 class GitHubCommenter:
@@ -11,12 +34,17 @@ class GitHubCommenter:
     Posts the review result as a GitHub PR comment.
 
     Requires pull-requests: write permission.
+    Supports multiple languages via SENTRY_LANG environment variable.
     """
 
-    def __init__(self):
+    def __init__(self, lang: str = None):
         self.github_token = os.getenv("GITHUB_TOKEN")
         self.repo = os.getenv("GITHUB_REPOSITORY")  # "owner/repo" format
         self.pr_number = os.getenv("PR_NUMBER")
+        
+        # Language selection: param > env > default
+        self.lang = lang or os.getenv("SENTRY_LANG", DEFAULT_LANGUAGE).lower()
+        self.locale = load_locale(self.lang)
 
         if not all([self.github_token, self.repo, self.pr_number]):
             raise ValueError(
@@ -33,75 +61,74 @@ class GitHubCommenter:
         Returns:
             True if successful, False otherwise
         """
-        import urllib.request
-        import urllib.error
-        import json
+        import httpx
 
         comment_body = self._format_comment(review_result)
 
         url = f"https://api.github.com/repos/{self.repo}/issues/{self.pr_number}/comments"
 
-        payload = json.dumps({"body": comment_body}).encode("utf-8")
-
-        request = urllib.request.Request(
-            url,
-            data=payload,
-            method="POST",
-            headers={
-                "Authorization": f"Bearer {self.github_token}",
-                "Accept": "application/vnd.github+json",
-                "Content-Type": "application/json",
-                "X-GitHub-Api-Version": "2022-11-28"
-            }
-        )
+        headers = {
+            "Authorization": f"Bearer {self.github_token}",
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+            "X-GitHub-Api-Version": "2022-11-28"
+        }
 
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                if response.status == 201:
+            with httpx.Client(timeout=30.0) as client:
+                response = client.post(url, json={"body": comment_body}, headers=headers)
+                
+                if response.status_code == 201:
                     print(f"✅ Comment posted successfully: PR #{self.pr_number}")
                     return True
                 else:
-                    print(f"❌ Unexpected status code: {response.status}")
+                    print(f"❌ Unexpected status code: {response.status_code}")
                     return False
-        except urllib.error.HTTPError as e:
-            print(f"❌ GitHub API error: {e.code} — {e.reason}")
+        except httpx.HTTPStatusError as e:
+            print(f"❌ GitHub API error: {e.response.status_code}")
             return False
-        except urllib.error.URLError as e:
-            print(f"❌ GitHub network error: {e.reason}")
+        except httpx.RequestError as e:
+            print(f"❌ GitHub network error: {e}")
             return False
 
     def _format_comment(self, result: Dict[str, Any]) -> str:
-        """Format the review result as a readable GitHub comment."""
-
-        lines = ["## 🛡️ PR-Sentry Review Report\n"]
+        """Format the review result as a readable GitHub comment using locale."""
+        t = self.locale  # Translation dict
+        
+        lines = [f"## {t['report_title']}\n"]
 
         # Slop warning
         if result["is_slop"]:
             lines.append(
-                f"### ⚠️ High AI Content Detected\n"
-                f"**Slop score:** {result['slop_score']}/100\n\n"
-                f"This PR shows signs of automatically generated content. "
-                f"Please assign a human reviewer.\n"
+                f"### {t['slop_warning_title']}\n"
+                f"**{t['slop_score_label']}:** {result['slop_score']}/100\n\n"
+                f"{t['slop_warning_message']}\n"
             )
             lines.append("---")
-            lines.append("*PR-Sentry — Zero-Nitpick AI Code Review*")
+            lines.append(f"*{t['footer_signature']}*")
             return "\n".join(lines)
 
         # Security warnings
         if result["security_hints"]:
             hints = "\n".join(f"- {h}" for h in result["security_hints"])
-            lines.append(f"### 🔐 Static Security Scan\n{hints}\n")
+            lines.append(f"### {t['security_scan_title']}\n{hints}\n")
+
+        # PR Summary (if available)
+        if result.get("summary"):
+            summary_title = t.get("summary_title", "📝 Summary")
+            lines.append(f"### {summary_title}\n{result['summary']}\n")
 
         # LLM review
-        lines.append(f"### 🔍 Code Review\n{result['review']}\n")
+        lines.append(f"### {t['code_review_title']}\n{result['review']}\n")
 
         # Footer
-        provider_label = "Claude (Anthropic)" if result["provider"] == "anthropic" else "Development mode"
+        t = self.locale
+        provider_label = t["provider_anthropic"] if result["provider"] == "anthropic" else t["provider_development"]
         lines.append("---")
         lines.append(
-            f"*PR-Sentry — Zero-Nitpick AI Code Review — "
-            f"Model: {provider_label} — "
-            f"Slop score: {result['slop_score']}/100*"
+            f"*{t['footer_signature']} — "
+            f"{t['model_label']}: {provider_label} — "
+            f"{t['slop_score_label']}: {result['slop_score']}/100*"
         )
 
         return "\n".join(lines)

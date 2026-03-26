@@ -1,9 +1,8 @@
 import os
 import sys
-import json
-import urllib.request
-import urllib.error
+import asyncio
 
+import httpx
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -12,78 +11,51 @@ from reviewer import Reviewer
 from github_commenter import GitHubCommenter
 
 
-def fetch_pr_data(repo: str, pr_number: str, token: str) -> dict:
+# GitHub API headers
+def get_github_headers(token: str, accept: str = "application/vnd.github+json") -> dict:
+    return {
+        "Authorization": f"Bearer {token}",
+        "Accept": accept,
+        "X-GitHub-Api-Version": "2022-11-28"
+    }
+
+
+async def fetch_pr_data(client: httpx.AsyncClient, repo: str, pr_number: str, token: str) -> dict:
     """
     Fetch the PR title, description, and commit messages from the GitHub API.
     """
     url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}"
-    request = urllib.request.Request(
-        url,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28"
-        }
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        raise RuntimeError(f"GitHub API HTTP error fetching PR data: {e.code} — {e.reason}") from e
-    except urllib.error.URLError as e:
-        raise RuntimeError(f"Network error fetching PR data: {e.reason}") from e
-    except json.JSONDecodeError as e:
-        raise RuntimeError(f"Invalid JSON fetching PR data: {e}") from e
+    response = await client.get(url, headers=get_github_headers(token))
+    response.raise_for_status()
+    return response.json()
 
 
-def fetch_pr_diff(repo: str, pr_number: str, token: str) -> str:
+async def fetch_pr_diff(client: httpx.AsyncClient, repo: str, pr_number: str, token: str) -> str:
     """
     Fetch the raw diff for a PR from the GitHub API.
     """
     url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}"
-    request = urllib.request.Request(
+    response = await client.get(
         url,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github.v3.diff",
-            "X-GitHub-Api-Version": "2022-11-28"
-        }
+        headers=get_github_headers(token, "application/vnd.github.v3.diff")
     )
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            return response.read().decode("utf-8")
-    except urllib.error.HTTPError as e:
-        raise RuntimeError(f"GitHub API HTTP error fetching diff: {e.code} — {e.reason}") from e
-    except urllib.error.URLError as e:
-        raise RuntimeError(f"Network error fetching diff: {e.reason}") from e
+    response.raise_for_status()
+    return response.text
 
 
-def fetch_commit_messages(repo: str, pr_number: str, token: str) -> list:
+async def fetch_commit_messages(client: httpx.AsyncClient, repo: str, pr_number: str, token: str) -> list:
     """
     Fetch commit messages for a PR as a list.
     """
     url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/commits"
-    request = urllib.request.Request(
-        url,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28"
-        }
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            commits = json.loads(response.read().decode("utf-8"))
-            return [c["commit"]["message"] for c in commits]
-    except urllib.error.HTTPError as e:
-        raise RuntimeError(f"GitHub API HTTP error fetching commits: {e.code} — {e.reason}") from e
-    except urllib.error.URLError as e:
-        raise RuntimeError(f"Network error fetching commits: {e.reason}") from e
-    except json.JSONDecodeError as e:
-        raise RuntimeError(f"Invalid JSON fetching commits: {e}") from e
+    response = await client.get(url, headers=get_github_headers(token))
+    response.raise_for_status()
+    commits = response.json()
+    return [c["commit"]["message"] for c in commits]
 
 
-def main():
+async def async_main():
+    """Async entry point for PR-Sentry."""
     # Read environment variables
     github_token = os.getenv("GITHUB_TOKEN")
     repo = os.getenv("GITHUB_REPOSITORY")
@@ -112,18 +84,32 @@ def main():
     print(f"🔍 PR-Sentry started: {repo} PR #{pr_number}")
 
     try:
-        pr_data = fetch_pr_data(repo, pr_number, github_token)
-        raw_diff = fetch_pr_diff(repo, pr_number, github_token)
-        commit_messages = fetch_commit_messages(repo, pr_number, github_token)
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # Fetch PR data, diff, and commits concurrently
+            pr_data_task = fetch_pr_data(client, repo, pr_number, github_token)
+            diff_task = fetch_pr_diff(client, repo, pr_number, github_token)
+            commits_task = fetch_commit_messages(client, repo, pr_number, github_token)
+            
+            pr_data, raw_diff, commit_messages = await asyncio.gather(
+                pr_data_task, diff_task, commits_task
+            )
+        
         title = pr_data.get("title", "")
         body = pr_data.get("body", "") or ""
-        # Run the review
+        
+        # Run the review (still sync for now, LLM calls are blocking)
         result = reviewer.review_pr(
             title=title,
             body=body,
             commit_messages=commit_messages,
             raw_diff=raw_diff
         )
+    except httpx.HTTPStatusError as e:
+        print(f"❌ GitHub API error: {e.response.status_code}")
+        sys.exit(1)
+    except httpx.RequestError as e:
+        print(f"❌ Network error: {e}")
+        sys.exit(1)
     except RuntimeError as e:
         print(f"❌ {e}")
         sys.exit(1)
@@ -150,6 +136,11 @@ def main():
         sys.exit(1)
 
     print("\n✅ PR-Sentry completed.")
+
+
+def main():
+    """Sync wrapper for async main."""
+    asyncio.run(async_main())
 
 
 if __name__ == "__main__":

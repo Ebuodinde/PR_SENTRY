@@ -7,6 +7,7 @@ from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 from slop_detector import SlopDetector
 from diff_parser import DiffParser
+from config_loader import load_config, build_custom_prompt_additions, should_ignore_file
 
 load_dotenv()
 
@@ -15,7 +16,7 @@ ALLOWED_PROVIDERS = {"anthropic", "development"}
 DEFAULT_ANTHROPIC_MODEL = "claude-4-5-haiku-20251015"
 
 
-# Zero-Nitpick system prompt
+# Zero-Nitpick system prompt (base)
 SYSTEM_PROMPT = """You are PR-Sentry, a security-focused code reviewer for open source projects.
 
 STRICT RULES:
@@ -35,37 +36,59 @@ If no critical issues:
 Remember: A false positive that wastes a developer's time is worse than a missed minor issue."""
 
 
-def _call_development_model(prompt: str, api_key: str) -> str:
-    """Development API call for local testing."""
+def _call_development_model(prompt: str, api_key: str, system_prompt: str = None) -> str:
+    """Development API call for local testing with exponential backoff."""
+    import time
+    import random
+
+    max_retries = 5
+    base_delay = 1.0
+    max_delay = 60.0
+    
+    effective_prompt = system_prompt or SYSTEM_PROMPT
+
     payload = json.dumps({
         "model": "gpt-4o-mini",
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": effective_prompt},
             {"role": "user", "content": prompt}
         ],
         "max_tokens": 1000,
         "temperature": 0.2
     }).encode("utf-8")
 
-    request = urllib.request.Request(
-        "https://api.openai.com/v1/chat/completions",
-        data=payload,
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-    )
+    for attempt in range(max_retries):
+        request = urllib.request.Request(
+            "https://api.openai.com/v1/chat/completions",
+            data=payload,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
+        )
 
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            data = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        raise RuntimeError(f"OpenAI API error: {e.code} — {e.reason}") from e
-    except urllib.error.URLError as e:
-        raise RuntimeError(f"Network error calling OpenAI: {e.reason}") from e
-    except json.JSONDecodeError as e:
-        raise RuntimeError(f"Invalid JSON response from OpenAI: {e}") from e
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                data = json.loads(response.read().decode("utf-8"))
+            break  # Success, exit retry loop
+        except urllib.error.HTTPError as e:
+            # Retry on rate limit (429) or server errors (5xx)
+            if e.code in (429, 500, 502, 503, 504) and attempt < max_retries - 1:
+                delay = min(base_delay * (2 ** attempt), max_delay)
+                jitter = delay * 0.25 * (2 * random.random() - 1)
+                time.sleep(delay + jitter)
+                continue
+            raise RuntimeError(f"OpenAI API error: {e.code} — {e.reason}") from e
+        except urllib.error.URLError as e:
+            if attempt < max_retries - 1:
+                delay = min(base_delay * (2 ** attempt), max_delay)
+                jitter = delay * 0.25 * (2 * random.random() - 1)
+                time.sleep(delay + jitter)
+                continue
+            raise RuntimeError(f"Network error calling OpenAI: {e.reason}") from e
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"Invalid JSON response from OpenAI: {e}") from e
 
     choices = data.get("choices")
     if not isinstance(choices, list) or len(choices) == 0:
@@ -82,13 +105,17 @@ def _call_development_model(prompt: str, api_key: str) -> str:
     return message["content"]
 
 
-def _call_anthropic(prompt: str, api_key: str, model: str) -> str:
-    """Anthropic API call for production."""
+def _call_anthropic(prompt: str, api_key: str, model: str, system_prompt: str = None) -> str:
+    """Anthropic API call for production with exponential backoff."""
     import anthropic
     import time
+    import random
 
-    max_retries = 3
-    retry_delay = 2
+    max_retries = 5
+    base_delay = 1.0
+    max_delay = 60.0
+    
+    effective_prompt = system_prompt or SYSTEM_PROMPT
 
     for attempt in range(max_retries):
         try:
@@ -96,18 +123,24 @@ def _call_anthropic(prompt: str, api_key: str, model: str) -> str:
             response = client.messages.create(
                 model=model,
                 max_tokens=1000,
-                system=SYSTEM_PROMPT,
+                system=effective_prompt,
                 messages=[{"role": "user", "content": prompt}]
             )
             return response.content[0].text
         except anthropic.RateLimitError as e:
             if attempt < max_retries - 1:
-                time.sleep(retry_delay * (attempt + 1))
+                # Exponential backoff: 1, 2, 4, 8, 16... capped at max_delay
+                delay = min(base_delay * (2 ** attempt), max_delay)
+                # Add jitter (±25%) to prevent thundering herd
+                jitter = delay * 0.25 * (2 * random.random() - 1)
+                time.sleep(delay + jitter)
                 continue
             raise RuntimeError(f"Anthropic rate limit exceeded after {max_retries} attempts: {e}") from e
         except anthropic.APIError as e:
             if attempt < max_retries - 1:
-                time.sleep(retry_delay)
+                delay = min(base_delay * (2 ** attempt), max_delay)
+                jitter = delay * 0.25 * (2 * random.random() - 1)
+                time.sleep(delay + jitter)
                 continue
             raise RuntimeError(f"Anthropic API error: {e}") from e
 
@@ -115,6 +148,7 @@ def _call_anthropic(prompt: str, api_key: str, model: str) -> str:
 class Reviewer:
     """
     Main module that combines slop_detector, diff_parser, and the LLM API.
+    Supports custom configuration via sentry-config.yml.
     """
 
     def __init__(
@@ -123,15 +157,25 @@ class Reviewer:
         anthropic_api_key: Optional[str] = None,
         dev_llm_api_key: Optional[str] = None,
         anthropic_model: Optional[str] = None,
+        config: Optional[Dict[str, Any]] = None,
     ):
         self.slop_detector = SlopDetector()
         self.diff_parser = DiffParser()
+        self.config = config or load_config()
+        
         self.provider = (provider or "").strip()
         if self.provider not in ALLOWED_PROVIDERS:
             raise ValueError(f"Invalid REVIEWER_PROVIDER: {self.provider}. Use 'anthropic' or 'development'.")
         self.anthropic_api_key = (anthropic_api_key or "").strip()
         self.dev_llm_api_key = (dev_llm_api_key or "").strip()
         self.anthropic_model = (anthropic_model or DEFAULT_ANTHROPIC_MODEL).strip() or DEFAULT_ANTHROPIC_MODEL
+        
+        # Build custom system prompt with user rules
+        self.system_prompt = SYSTEM_PROMPT + build_custom_prompt_additions(self.config)
+        
+        # Update slop threshold from config
+        if "slop_threshold" in self.config:
+            self.slop_detector.SLOP_THRESHOLD = self.config["slop_threshold"]
 
         if self.provider == "anthropic" and not self.anthropic_api_key:
             raise ValueError("ANTHROPIC_API_KEY is required when provider='anthropic'.")
@@ -150,7 +194,7 @@ class Reviewer:
         Analyze the PR.
 
         1. Slop detection — cheap and API-free
-        2. Diff parsing + security scan
+        2. Diff parsing + security scan (with file filtering)
         3. LLM review — only called if the PR is not slop
 
         Returns:
@@ -179,9 +223,17 @@ class Reviewer:
 
         # Step 2: Parse the diff
         parsed_files = self.diff_parser.parse_diff(raw_diff)
-        formatted_diff = self.diff_parser.format_for_review(parsed_files)
+        
+        # Filter out ignored files based on config
+        filtered_files = [
+            f for f in parsed_files 
+            if not should_ignore_file(f["filename"], self.config)
+        ]
+        
+        max_diff_size = self.config.get("max_diff_size", 12000)
+        formatted_diff = self.diff_parser.format_for_review(filtered_files, max_chars=max_diff_size)
 
-        # Collect security warnings from all files
+        # Collect security warnings from all files (including ignored for security)
         all_hints = []
         for f in parsed_files:
             all_hints.extend(f["security_hints"])
@@ -196,20 +248,46 @@ Code Changes:
 {formatted_diff}"""
 
         if self.provider == "anthropic":
-            review_text = _call_anthropic(prompt, self.anthropic_api_key, self.anthropic_model)
+            review_text = _call_anthropic(prompt, self.anthropic_api_key, self.anthropic_model, self.system_prompt)
         elif self.provider == "development":
-            review_text = _call_development_model(prompt, self.dev_llm_api_key)
+            review_text = _call_development_model(prompt, self.dev_llm_api_key, self.system_prompt)
         else:
             raise RuntimeError(f"Invalid reviewer provider state: {self.provider}")
+
+        # Step 4: Generate PR summary (optional, based on config)
+        summary_text = ""
+        if self.config.get("enable_summary", True):
+            summary_text = self._generate_summary(title, body, filtered_files)
 
         return {
             "is_slop": False,
             "slop_score": slop_result["slop_score"],
             "security_hints": all_hints,
             "review": review_text,
+            "summary": summary_text,
             "provider": self.provider,
             "skipped_llm": False
         }
+
+    def _generate_summary(self, title: str, body: str, files: list) -> str:
+        """Generate a brief summary of the PR changes."""
+        # Build a lightweight summary without LLM for simple cases
+        file_count = len(files)
+        total_additions = sum(f["additions"] for f in files)
+        total_deletions = sum(f["deletions"] for f in files)
+        
+        file_types = {}
+        for f in files:
+            ext = f["filename"].split(".")[-1] if "." in f["filename"] else "other"
+            file_types[ext] = file_types.get(ext, 0) + 1
+        
+        type_summary = ", ".join(f"{count} {ext}" for ext, count in sorted(file_types.items(), key=lambda x: -x[1])[:3])
+        
+        summary = f"📊 **{file_count} files** changed (+{total_additions}/-{total_deletions})"
+        if type_summary:
+            summary += f" • {type_summary}"
+        
+        return summary
 
 
 # --- Test Area ---

@@ -1,0 +1,40 @@
+# PR-Sentry Docker Compose
+# For local development and testing
+
+services:
+  pr-sentry:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      # Required
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_REPOSITORY=${GITHUB_REPOSITORY}
+      - PR_NUMBER=${PR_NUMBER}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      # Optional
+      - REVIEWER_PROVIDER=${REVIEWER_PROVIDER:-anthropic}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-4-5-haiku-20251015}
+      - DEV_LLM_API_KEY=${DEV_LLM_API_KEY:-}
+    env_file:
+      - .env
+    # No ports needed - this is a CLI tool, not a server
+
+  # Development mode with mounted source code
+  pr-sentry-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./:/app:ro  # Mount source code as read-only
+    environment:
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_REPOSITORY=${GITHUB_REPOSITORY}
+      - PR_NUMBER=${PR_NUMBER}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - REVIEWER_PROVIDER=${REVIEWER_PROVIDER:-development}
+      - DEV_LLM_API_KEY=${DEV_LLM_API_KEY}
+    env_file:
+      - .env
+    profiles:
+      - dev

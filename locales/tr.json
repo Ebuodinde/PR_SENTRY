@@ -1,0 +1,13 @@
+{
+  "report_title": "🛡️ PR-Sentry İnceleme Raporu",
+  "slop_warning_title": "⚠️ Yüksek Yapay Zeka İçeriği Tespit Edildi",
+  "slop_score_label": "Slop skoru",
+  "slop_warning_message": "Bu PR otomatik üretilmiş içerik işaretleri göstermektedir. Lütfen insan gözden geçirici atayın.",
+  "security_scan_title": "🔐 Statik Güvenlik Taraması",
+  "summary_title": "📝 Özet",
+  "code_review_title": "🔍 Kod İncelemesi",
+  "footer_signature": "PR-Sentry — Sıfır-Küçümseme Yapay Zeka Kod İncelemesi",
+  "model_label": "Model",
+  "provider_anthropic": "Claude (Anthropic)",
+  "provider_development": "Geliştirme modu"
+}

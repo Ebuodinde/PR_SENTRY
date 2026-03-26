@@ -1,5 +1,6 @@
 import re
 from typing import List, Dict, Any
+from entropy_scanner import EntropyScanner
 
 
 class DiffParser:
@@ -10,17 +11,60 @@ class DiffParser:
 
     # Potentially risky security patterns
     SENSITIVE_PATTERNS = [
+        # Generic secrets
         (r'(?i)(password|passwd|pwd)\s*=\s*["\']?.+["\']?', "Hardcoded password"),
         (r'(?i)(api_key|apikey|api_secret)\s*=\s*["\']?.+["\']?', "Hardcoded API key"),
         (r'(?i)(secret|token)\s*=\s*["\']?[a-zA-Z0-9_\-]{8,}["\']?', "Hardcoded secret/token"),
-        (r'(?i)-----BEGIN (RSA |EC )?PRIVATE KEY-----', "Private key"),
-        # Cloud Cloud credentials
+        (r'(?i)-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----', "Private key"),
+        
+        # AWS Credentials
         (r'(?i)AKIA[0-9A-Z]{16}', "AWS Access Key ID"),
+        (r'(?i)ABIA[0-9A-Z]{16}', "AWS STS Access Key"),
+        (r'(?i)ACCA[0-9A-Z]{16}', "AWS Credential Access Key"),
+        (r'(?i)ASIA[0-9A-Z]{16}', "AWS Temporary Access Key"),
         (r'(?i)["\'][a-zA-Z0-9/+=]{40}["\']', "AWS Secret Access Key (Potential)"),
-        (r'(?i)AIza[0-9A-Za-z\\-_]{35}', "Google API Key"),
+        (r'(?i)arn:aws:[a-z0-9-]+:[a-z0-9-]*:\d{12}:', "AWS ARN"),
+        
+        # Azure Credentials
+        (r'(?i)[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}', "Azure Subscription/Tenant ID"),
+        (r'(?i)DefaultEndpointsProtocol=https?;AccountName=[^;]+;AccountKey=[^;]+', "Azure Storage Connection String"),
+        (r'(?i)AccountKey=[a-zA-Z0-9+/=]{86,88}', "Azure Storage Account Key"),
+        (r'(?i)SharedAccessSignature=sv=[^&]+&sig=[^&]+', "Azure SAS Token"),
+        
+        # GCP Credentials
+        (r'(?i)AIza[0-9A-Za-z_-]{35}', "Google API Key"),
+        (r'(?i)"type"\s*:\s*"service_account"', "GCP Service Account JSON"),
+        (r'(?i)"private_key_id"\s*:\s*"[a-f0-9]{40}"', "GCP Private Key ID"),
+        (r'(?i)[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com', "Google OAuth Client ID"),
+        
+        # Database Connection Strings
+        (r'(?i)mongodb(\+srv)?://[^:]+:[^@]+@', "MongoDB Connection String"),
+        (r'(?i)postgres(ql)?://[^:]+:[^@]+@', "PostgreSQL Connection String"),
+        (r'(?i)mysql://[^:]+:[^@]+@', "MySQL Connection String"),
+        (r'(?i)redis://[^:]+:[^@]+@', "Redis Connection String"),
+        
+        # Other Cloud/Service Tokens
         (r'(?i)sqp_[a-z0-9]{40}', "SonarQube Token"),
         (r'(?i)xox[baprs]-[0-9a-zA-Z]{10,48}', "Slack Token"),
+        (r'(?i)ghp_[a-zA-Z0-9]{36}', "GitHub Personal Access Token"),
+        (r'(?i)gho_[a-zA-Z0-9]{36}', "GitHub OAuth Token"),
+        (r'(?i)ghu_[a-zA-Z0-9]{36}', "GitHub User Token"),
+        (r'(?i)ghs_[a-zA-Z0-9]{36}', "GitHub Server Token"),
+        (r'(?i)ghr_[a-zA-Z0-9]{36}', "GitHub Refresh Token"),
+        (r'(?i)npm_[a-zA-Z0-9]{36}', "NPM Token"),
+        (r'(?i)sk-[a-zA-Z0-9]{48}', "OpenAI API Key"),
+        (r'(?i)sk-ant-[a-zA-Z0-9-]{95}', "Anthropic API Key"),
+        (r'(?i)SG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43}', "SendGrid API Key"),
+        (r'(?i)sk_live_[a-zA-Z0-9]{24,}', "Stripe Live Secret Key"),
+        (r'(?i)rk_live_[a-zA-Z0-9]{24,}', "Stripe Restricted Key"),
+        (r'(?i)sq0csp-[a-zA-Z0-9_-]{43}', "Square Access Token"),
+        (r'(?i)sq0atp-[a-zA-Z0-9_-]{22}', "Square OAuth Token"),
+        (r'(?i)EAAC[a-zA-Z0-9]+', "Facebook Access Token"),
+        (r'(?i)ya29\.[0-9A-Za-z_-]+', "Google OAuth Access Token"),
     ]
+
+    def __init__(self):
+        self.entropy_scanner = EntropyScanner()
 
     def parse_diff(self, raw_diff: str) -> List[Dict[str, Any]]:
         """
@@ -97,11 +141,22 @@ class DiffParser:
         }
 
     def _scan_for_sensitive_data(self, text: str) -> List[str]:
-        """Scan changed lines for sensitive data patterns."""
+        """Scan changed lines for sensitive data patterns and high-entropy strings."""
         found = []
+        
+        # Regex-based pattern matching
         for pattern, description in self.SENSITIVE_PATTERNS:
             if re.search(pattern, text):
                 found.append(description)
+        
+        # Entropy-based detection
+        entropy_findings = self.entropy_scanner.scan_text(text)
+        for finding in entropy_findings:
+            # Avoid duplicates with regex findings
+            entropy_hint = f"High-entropy string detected (entropy: {finding['entropy']})"
+            if entropy_hint not in found:
+                found.append(entropy_hint)
+        
         return found
 
     def format_for_review(self, parsed_files: List[Dict[str, Any]], max_chars: int = 12000) -> str:

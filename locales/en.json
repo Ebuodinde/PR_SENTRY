@@ -1,0 +1,13 @@
+{
+  "report_title": "🛡️ PR-Sentry Review Report",
+  "slop_warning_title": "⚠️ High AI Content Detected",
+  "slop_score_label": "Slop score",
+  "slop_warning_message": "This PR shows signs of automatically generated content. Please assign a human reviewer.",
+  "security_scan_title": "🔐 Static Security Scan",
+  "summary_title": "📝 Summary",
+  "code_review_title": "🔍 Code Review",
+  "footer_signature": "PR-Sentry — Zero-Nitpick AI Code Review",
+  "model_label": "Model",
+  "provider_anthropic": "Claude (Anthropic)",
+  "provider_development": "Development mode"
+}
