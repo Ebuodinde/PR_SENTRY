@@ -47,7 +47,7 @@ class TestReviewerInit:
             provider="anthropic",
             anthropic_api_key="sk-ant-test-key"
         )
-        assert reviewer.anthropic_model == "claude-4-5-haiku-20251015"
+        assert reviewer.anthropic_model == "claude-sonnet-4.5"
 
     def test_init_custom_model(self):
         """Custom model should be used when provided."""

@@ -17,3 +17,8 @@ build/
 
 # Test outputs
 *.log
+
+# Outreach & marketing notes (private)
+outreach-notes.md
+*outreach*.md
+marketing-strategy.md

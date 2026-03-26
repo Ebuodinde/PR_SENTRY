@@ -9,11 +9,13 @@ from slop_detector import SlopDetector
 from diff_parser import DiffParser
 from config_loader import load_config, build_custom_prompt_additions, should_ignore_file
 
+from llm_router import LLMRouter, calculate_pr_complexity
+
 load_dotenv()
 
 # Provider selection: production or development
 ALLOWED_PROVIDERS = {"anthropic", "development"}
-DEFAULT_ANTHROPIC_MODEL = "claude-4-5-haiku-20251015"
+DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4.5"  # Updated default to Sonnet
 
 
 # Zero-Nitpick system prompt (base)
@@ -163,6 +165,13 @@ class Reviewer:
         self.diff_parser = DiffParser()
         self.config = config or load_config()
         
+        # Initialize LLM router for smart model selection
+        try:
+            self.llm_router = LLMRouter(config=self.config)
+        except ValueError:
+            # No Anthropic key - will fail later if trying to use
+            self.llm_router = None
+        
         self.provider = (provider or "").strip()
         if self.provider not in ALLOWED_PROVIDERS:
             raise ValueError(f"Invalid REVIEWER_PROVIDER: {self.provider}. Use 'anthropic' or 'development'.")
@@ -230,13 +239,55 @@ class Reviewer:
             if not should_ignore_file(f["filename"], self.config)
         ]
         
-        max_diff_size = self.config.get("max_diff_size", 12000)
-        formatted_diff = self.diff_parser.format_for_review(filtered_files, max_chars=max_diff_size)
-
-        # Collect security warnings from all files (including ignored for security)
+        # Calculate PR complexity for routing
+        complexity_score = calculate_pr_complexity(filtered_files)
+        
+        # Collect security warnings from all files
         all_hints = []
         for f in parsed_files:
             all_hints.extend(f["security_hints"])
+        
+        has_security_patterns = len(all_hints) > 0
+        
+        # Step 2.5: Smart model selection (if using router)
+        selected_model = None
+        if self.llm_router and self.provider == "anthropic":
+            max_diff_size = self.config.get("max_diff_size", 12000)
+            formatted_diff_preview = self.diff_parser.format_for_review(filtered_files, max_chars=max_diff_size)
+            
+            pr_analysis = {
+                "is_slop": False,  # Already checked above
+                "has_security_patterns": has_security_patterns,
+                "file_count": len(filtered_files),
+                "complexity_score": complexity_score,
+                "diff_content": formatted_diff_preview
+            }
+            
+            # Check if we should skip LLM entirely
+            should_skip, skip_reason = self.llm_router.should_skip_llm(pr_analysis)
+            if should_skip:
+                return {
+                    "is_slop": False,
+                    "slop_score": slop_result["slop_score"],
+                    "security_hints": all_hints,
+                    "review": f"ℹ️ LLM review skipped: {skip_reason}",
+                    "provider": self.provider,
+                    "skipped_llm": True,
+                    "routing_info": {
+                        "reason": skip_reason,
+                        "complexity": complexity_score
+                    }
+                }
+            
+            # Select best model
+            selected_model = self.llm_router.select_model(pr_analysis)
+            if selected_model:
+                # Override the model if router suggests something different
+                if selected_model.provider == "anthropic":
+                    self.anthropic_model = selected_model.model
+        
+        max_diff_size = self.config.get("max_diff_size", 12000)
+        formatted_diff = self.diff_parser.format_for_review(filtered_files, max_chars=max_diff_size)
 
         # Step 3: LLM review
         prompt = f"""PR Title: {title}
@@ -266,7 +317,13 @@ Code Changes:
             "review": review_text,
             "summary": summary_text,
             "provider": self.provider,
-            "skipped_llm": False
+            "skipped_llm": False,
+            "routing_info": {
+                "model": selected_model.model if selected_model else self.anthropic_model,
+                "provider": selected_model.provider if selected_model else self.provider,
+                "complexity": complexity_score,
+                "cost_per_million": selected_model.cost_per_million if selected_model else 3.0
+            } if selected_model or self.llm_router else {}
         }
 
     def _generate_summary(self, title: str, body: str, files: list) -> str:
