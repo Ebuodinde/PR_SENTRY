@@ -1,5 +1,5 @@
 name: "PR-Sentry"
-description: "Zero-Nitpick AI code review. Multi-provider support: Claude, GPT-4, DeepSeek."
+description: "Detect AI-generated pull requests using statistical NLP analysis. Zero-nitpick security review — Shannon entropy secret detection, slop scoring, and LLM review for open source maintainers."
 author: "Ebuodinde"
 
 branding:

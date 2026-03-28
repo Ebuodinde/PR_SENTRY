@@ -238,6 +238,20 @@ Add to your `~/.config/claude/claude_desktop_config.json`:
 
 ---
 
+## How PR-Sentry Detects AI-Generated Pull Requests
+
+Most tools that claim to detect AI-generated code rely on external APIs like GPTZero or Originality.ai, or on simple regex heuristics — both of which are unreliable and easy to bypass.
+
+PR-Sentry takes a different approach: statistical NLP analysis that runs locally, before any LLM call is made. The slop detector computes a composite score from four signals: buzzword density (frequency of filler terms like "robust", "seamless", "leverage"), passive voice ratio, sentence length uniformity, and repetition score. These four dimensions capture the characteristic flatness of AI-generated text — high surface density, low semantic signal. A PR scoring above 60/100 is flagged as AI-generated content and skipped entirely, saving the LLM call.
+
+For secret detection, PR-Sentry uses Shannon entropy analysis on every string in the diff. Human-written code rarely produces strings with entropy above 4.5 bits per character. API keys, tokens, and accidentally committed passwords almost always do. This entropy-based approach catches secrets that regex patterns miss — including novel key formats that no pattern library has seen yet.
+
+When a PR passes both filters and reaches the LLM review stage, a strict zero-nitpick system prompt enforces one rule: report only runtime crashes, security vulnerabilities, race conditions, and memory leaks.
+
+This is what separates PR-Sentry from tools like CodeRabbit or GitHub Copilot review, which function as verbose linters rather than security reviewers. If you're looking for a CodeRabbit alternative or a GitHub Copilot review alternative that focuses exclusively on what breaks in production — PR-Sentry is built for that.
+
+---
+
 ## Why Not CodeRabbit or Copilot?
 
 | Feature | CodeRabbit | GitHub Copilot | PR-Sentry |
@@ -295,7 +309,7 @@ PR-Sentry is designed to minimize API costs while maximizing review quality.
 
 | Provider | Models |
 |----------|--------|
-| **Anthropic** | `claude-sonnet-4-20250514`, `claude-haiku-3-5-20241022`, `claude-opus-4-20250514` |
+| **Anthropic** | `claude-opus-4-5`, `claude-sonnet-4-5`, `claude-haiku-4-5-20251001` |
 | **OpenAI** | `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `gpt-3.5-turbo` |
 | **DeepSeek** | `deepseek-chat`, `deepseek-coder` |
 
@@ -475,4 +489,4 @@ MIT — free for open source and commercial use.
 
 ## Credits
 
-Developed by [Ebuodinde](https://github.com/Ebuodinde) with assistance from GitHub Copilot.
+Developed by [Şahin Uygutalp](https://github.com/Ebuodinde). Built with Claude (Anthropic).
