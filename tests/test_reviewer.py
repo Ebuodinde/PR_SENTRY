@@ -55,13 +55,13 @@ class TestReviewerInit:
         reviewer = Reviewer(
             provider="openai",
             api_key="sk-test",
-            model="gpt-4-turbo"
+            model="gpt-4o"
         )
         
         mock_get_provider.assert_called_once_with(
             provider_name="openai",
             api_key="sk-test",
-            model="gpt-4-turbo",
+            model="gpt-4o",
         )
 
 

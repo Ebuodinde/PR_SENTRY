@@ -9,9 +9,9 @@ class AnthropicProvider(BaseProvider):
     name = "anthropic"
     
     MODELS = {
-        "claude-sonnet-4-20250514": "Claude Sonnet 4",
-        "claude-haiku-3-5-20241022": "Claude Haiku 3.5",
-        "claude-opus-4-20250514": "Claude Opus 4",
+        "claude-sonnet-4-6": "Claude Sonnet 4.6",
+        "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
+        "claude-opus-4-6": "Claude Opus 4.6",
     }
     
     def __init__(self, config: ProviderConfig):
@@ -30,7 +30,7 @@ class AnthropicProvider(BaseProvider):
     
     @property
     def default_model(self) -> str:
-        return "claude-sonnet-4-20250514"
+        return "claude-sonnet-4-6"
     
     @property
     def available_models(self) -> list[str]:

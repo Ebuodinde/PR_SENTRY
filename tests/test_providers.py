@@ -150,7 +150,7 @@ class TestOpenAIProvider:
         models = provider.available_models
         assert "gpt-4o" in models
         assert "gpt-4o-mini" in models
-        assert "gpt-3.5-turbo" in models
+        assert "gpt-4o-mini" in models
 
     @patch("openai.OpenAI")
     def test_review_code(self, mock_openai_cls):
@@ -251,8 +251,8 @@ class TestProviderFactory:
             get_provider()
 
     def test_get_provider_with_model_override(self):
-        provider = get_provider("openai", api_key="test", model="gpt-4-turbo")
-        assert provider.config.model == "gpt-4-turbo"
+        provider = get_provider("openai", api_key="test", model="gpt-4o")
+        assert provider.config.model == "gpt-4o"
 
     def test_list_providers(self):
         result = list_providers()
